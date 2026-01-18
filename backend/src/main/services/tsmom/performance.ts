@@ -6,9 +6,23 @@ type CandleRow = { ts: number; close: number };
 
 type CashEvent = { ts: number; deltaCash: number };
 
-type TradeRow = { symbol: string; side: 'BUY'|'SELL'; qty: number; price: number; ts: number; fee?: number | null };
+type TradeRow = { symbol: string; side: 'BUY'|'SELL'; qty: number; price: number; ts: number; fee?: number | null; trade_currency?: string | null; fx_rate?: number | null; notional_base?: number | null; fee_base?: number | null };
 
 type LedgerRow = { ts: number; amount: number };
+
+type Currency = 'USD' | 'ILS';
+
+function normalizeCurrency(x: any): Currency {
+  const s = String(x || '').toUpperCase();
+  if (s === 'USD') return 'USD';
+  return 'ILS';
+}
+
+function inferAssetCurrency(ticker: string): Currency {
+  const t = String(ticker || '').toUpperCase();
+  if (t.endsWith('.TA')) return 'ILS';
+  return 'USD';
+}
 
 function loadCloseSeries(db: any, symbol: string): CandleRow[] {
   const rows = db
@@ -43,9 +57,13 @@ function pickBenchmark(db: any, preferred?: string | null): string | null {
   return null;
 }
 
-export async function computeTsmomPerformanceSeries(opts?: { years?: number; benchmark?: string | null }): Promise<{ benchmark: string | null; points: PerformancePoint[] }> {
+export async function computeTsmomPerformanceSeries(opts?: { portfolioId?: number; years?: number; benchmark?: string | null }): Promise<{ benchmark: string | null; points: PerformancePoint[] }> {
   const db = getDB();
+  const portfolioId = Number(opts?.portfolioId ?? 1);
   const years = Math.min(10, Math.max(1, Number(opts?.years ?? 5)));
+
+  const baseRow = db.prepare('SELECT base_currency FROM portfolios WHERE id=?').get(portfolioId) as any;
+  const baseCurrency = normalizeCurrency(baseRow?.base_currency);
 
   const benchmark = pickBenchmark(db, opts?.benchmark ?? null);
   if (!benchmark) return { benchmark: null, points: [] };
@@ -58,8 +76,8 @@ export async function computeTsmomPerformanceSeries(opts?: { years?: number; ben
   if (benchAll.length < 10) return { benchmark, points: [] };
 
   // Traded symbols drive what we need to price for equity
-  const trades = db.prepare('SELECT symbol, side, qty, price, ts, fee FROM portfolio_trades ORDER BY ts ASC, id ASC').all() as TradeRow[];
-  const led = db.prepare('SELECT ts, amount FROM capital_ledger ORDER BY ts ASC, id ASC').all() as LedgerRow[];
+  const trades = db.prepare('SELECT symbol, side, qty, price, ts, fee, trade_currency, fx_rate, notional_base, fee_base FROM portfolio_trades WHERE portfolio_id=? ORDER BY ts ASC, id ASC').all(portfolioId) as TradeRow[];
+  const led = db.prepare('SELECT ts, amount FROM capital_ledger WHERE portfolio_id=? ORDER BY ts ASC, id ASC').all(portfolioId) as LedgerRow[];
 
   const tradedSymbols = Array.from(new Set(trades.map(t => String(t.symbol || '').toUpperCase()).filter(Boolean)));
 
@@ -79,6 +97,16 @@ export async function computeTsmomPerformanceSeries(opts?: { years?: number; ben
     priceSeries[s] = ser;
   }
 
+  // FX series (USDILS=X) used for base-currency conversion when needed.
+  const fxSeries = loadCloseSeries(db, 'USDILS=X').filter(r => r.ts >= (startMs - 10 * 24 * 60 * 60 * 1000));
+  let fxIdx = 0;
+  const fxAt = (ts: number): number | null => {
+    if (!fxSeries.length) return null;
+    while (fxIdx + 1 < fxSeries.length && fxSeries[fxIdx + 1].ts <= ts) fxIdx++;
+    const v = fxSeries[fxIdx]?.close;
+    return Number.isFinite(v) && v > 0 ? v : null;
+  };
+
   // Build cash events from ledger + trades
   const cashEvents: CashEvent[] = [];
   for (const r of led) {
@@ -91,11 +119,23 @@ export async function computeTsmomPerformanceSeries(opts?: { years?: number; ben
     const ts = Number(t.ts);
     const qty = Number(t.qty);
     const price = Number(t.price);
-    const fee = Number(t.fee);
-    const commission = Number.isFinite(fee) ? fee : 5;
+    const feeLegacy = Number(t.fee);
+    const feeBase = Number.isFinite(Number(t.fee_base)) ? Number(t.fee_base) : (Number.isFinite(feeLegacy) ? feeLegacy : 5);
     if (!Number.isFinite(ts) || !Number.isFinite(qty) || !Number.isFinite(price)) continue;
-    const gross = qty * price;
-    const deltaCash = t.side === 'BUY' ? (-(gross + commission)) : (gross - commission);
+
+    let grossBase = Number(t.notional_base);
+    if (!Number.isFinite(grossBase) || grossBase < 0) {
+      const grossTrade = qty * price;
+      const tradeCcy = normalizeCurrency(t.trade_currency);
+      if (tradeCcy === baseCurrency) {
+        grossBase = grossTrade;
+      } else {
+        const fxRate = Number(t.fx_rate);
+        grossBase = (Number.isFinite(fxRate) && fxRate > 0) ? (grossTrade * fxRate) : grossTrade;
+      }
+    }
+
+    const deltaCash = t.side === 'BUY' ? (-(grossBase + feeBase)) : (grossBase - feeBase);
     cashEvents.push({ ts, deltaCash });
   }
   cashEvents.sort((a, b) => a.ts - b.ts);
@@ -142,7 +182,17 @@ export async function computeTsmomPerformanceSeries(opts?: { years?: number; ben
       seriesIdx[sym] = i;
       const px = ser[i]?.close;
       if (!Number.isFinite(px)) continue;
-      holdings += qty * px;
+
+      const assetCcy = inferAssetCurrency(sym);
+      let rate = 1;
+      if (assetCcy !== baseCurrency) {
+        const fx = fxAt(ts);
+        if (fx && Number.isFinite(fx) && fx > 0) {
+          // fx is ILS per USD
+          rate = (assetCcy === 'USD' && baseCurrency === 'ILS') ? fx : (assetCcy === 'ILS' && baseCurrency === 'USD') ? (1 / fx) : 1;
+        }
+      }
+      holdings += qty * px * rate;
     }
 
     const equityAbs = cash + holdings;

@@ -26,6 +26,7 @@ type PlanItem = {
 
 type RebalancePlan = {
   asOf: string;
+  baseCurrency?: 'USD' | 'ILS';
   params: {
     lookbackTradingDays: number;
     skipRecentTradingDays: number;
@@ -40,6 +41,7 @@ type RebalancePlan = {
   holdingsValueNIS: number;
   items: PlanItem[];
   warnings: string[];
+  raw?: any;
 };
 
 type SignalMatrixRow = {
@@ -135,16 +137,16 @@ export default function TsmomCommandCenter() {
   const api = (window as any).api as undefined | {
     tsmom: {
       getUniverse(): Promise<AssetRow[]>;
-      computePlan(): Promise<RebalancePlan>;
+      computePlan(opts?: { portfolioId?: number }): Promise<RebalancePlan>;
       getSignalMatrix(): Promise<SignalMatrix>;
-      getPerformance(opts?: { years?: number; benchmark?: string | null }): Promise<{ benchmark: string | null; points: PerformancePoint[] }>;
+      getPerformance(opts?: { portfolioId?: number; years?: number; benchmark?: string | null }): Promise<{ benchmark: string | null; points: PerformancePoint[] }>;
       sandboxRun(opts?: { years?: number; benchmark?: string | null; params?: any }): Promise<SandboxResult>;
       sandboxCompare(opts: { years?: number; benchmark?: string | null; runs: Array<{ label: string; params: any }> }): Promise<any>;
       executeTrades(payload: any): Promise<{ ok: true }>;
-      listLedger(opts?: { limit?: number }): Promise<LedgerRow[]>;
+      listLedger(opts?: { portfolioId?: number; limit?: number }): Promise<LedgerRow[]>;
       addLedgerEntry(payload: any): Promise<{ id: number; ts: number }>;
       deleteLedgerEntry(id: number): Promise<{ ok: true }>;
-      listTrades(opts?: { limit?: number; strategyTagPrefix?: string }): Promise<TradeRow[]>;
+      listTrades(opts?: { portfolioId?: number; limit?: number; strategyTagPrefix?: string }): Promise<TradeRow[]>;
 
       getSyncStatus(): Promise<{ lastRun: SyncRunRow | null; openFlags: number }>;
       listSyncRuns(opts?: { limit?: number }): Promise<SyncRunRow[]>;
@@ -152,6 +154,19 @@ export default function TsmomCommandCenter() {
       ackPriceFlag(id: number): Promise<{ ok: true }>;
 
       applyCorporateAction(flagId: number): Promise<{ ok: true; ticker: string; factor: number; cutoffTs: number; updatedCandles: number }>;
+    };
+
+    portfolios?: {
+      list(): Promise<Array<{ id: number; name: string; base_currency: 'USD'|'ILS'; strategy_ref: string | null; created_at: number; meta: string | null }>>;
+      create(payload: { name: string; baseCurrency?: 'USD'|'ILS'; strategyRef?: string; meta?: any }): Promise<any>;
+      update(payload: any): Promise<{ ok: true }>;
+      delete(id: number): Promise<{ ok: true }>;
+      getSnapshot(opts?: { portfolioId?: number }): Promise<{ portfolioId: number; baseCurrency: 'USD'|'ILS'; cashBase: number; holdingsValueBase: number; navBase: number; positions: any[]; warnings: string[] }>;
+      universe: {
+        list(opts?: { portfolioId?: number }): Promise<string[]>;
+        addTicker(payload: { portfolioId?: number; ticker: string }): Promise<{ ok: true }>;
+        removeTicker(payload: { portfolioId?: number; ticker: string }): Promise<{ ok: true }>;
+      };
     };
   };
 
@@ -165,6 +180,17 @@ export default function TsmomCommandCenter() {
 
   // From here on, the Electron bridge is available.
   const tsmom = api.tsmom;
+  const portfoliosApi = api.portfolios;
+
+  const [portfolios, setPortfolios] = useState<Array<{ id: number; name: string; base_currency: 'USD'|'ILS' }>>([]);
+  const [portfolioId, setPortfolioId] = useState<number>(() => {
+    const v = Number(localStorage.getItem('tsmom.portfolioId') || '1');
+    return Number.isFinite(v) && v > 0 ? v : 1;
+  });
+  const [usdIls, setUsdIls] = useState<number | null>(null);
+
+  const [portfolioUniverse, setPortfolioUniverse] = useState<string[]>([]);
+  const [newUniverseTicker, setNewUniverseTicker] = useState('');
 
   const [universe, setUniverse] = useState<AssetRow[]>([]);
   const [plan, setPlan] = useState<RebalancePlan | null>(null);
@@ -215,6 +241,8 @@ export default function TsmomCommandCenter() {
   const [commissionNIS, setCommissionNIS] = useState(5);
 
   const [fillPrices, setFillPrices] = useState<Record<string, number>>({});
+  const [fillQtys, setFillQtys] = useState<Record<string, number>>({});
+  const [fillCostBase, setFillCostBase] = useState<Record<string, number>>({});
 
   async function loadUniverse() {
     setLoadingUniverse(true);
@@ -225,20 +253,70 @@ export default function TsmomCommandCenter() {
     }
   }
 
+  async function loadPortfolios() {
+    if (!portfoliosApi) return;
+    try {
+      const list = await portfoliosApi.list();
+      setPortfolios(list.map(p => ({ id: p.id, name: p.name, base_currency: p.base_currency })));
+      if (list.length && !list.some(p => p.id === portfolioId)) {
+        setPortfolioId(list[0].id);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function loadUsdIls() {
+    try {
+      const fx = await api.getCandles('USDILS=X', '6M');
+      const last = fx?.[fx.length - 1];
+      const v = Number((last as any)?.close);
+      setUsdIls(Number.isFinite(v) && v > 0 ? v : null);
+    } catch {
+      setUsdIls(null);
+    }
+  }
+
+  async function loadPortfolioUniverse() {
+    if (!portfoliosApi) return;
+    try {
+      const list = await portfoliosApi.universe.list({ portfolioId });
+      setPortfolioUniverse(list);
+    } catch {
+      setPortfolioUniverse([]);
+    }
+  }
+
   async function computePlan() {
     setLoadingPlan(true);
     try {
-      const p = await tsmom.computePlan();
+      const p = await tsmom.computePlan({ portfolioId });
       setPlan(p);
 
       const next: Record<string, number> = {};
+      const nextQty: Record<string, number> = {};
+      const nextCost: Record<string, number> = {};
       for (const it of p.items) {
         if (it.action === "HOLD") continue;
         if (typeof it.price === "number" && Number.isFinite(it.price) && it.price > 0) {
           next[it.ticker] = it.price;
         }
+        const q = Math.abs(Number(it.deltaQty || 0));
+        if (Number.isFinite(q) && q > 0) nextQty[it.ticker] = q;
+
+        // If base currency is ILS and ticker is likely USD, prefill an ILS cost estimate.
+        const base = (p.baseCurrency || 'ILS');
+        const isUsdAsset = !String(it.ticker).toUpperCase().endsWith('.TA');
+        if (base === 'ILS' && isUsdAsset) {
+          const fx = Number(usdIls);
+          if (Number.isFinite(fx) && fx > 0 && Number.isFinite(q) && Number.isFinite(Number(it.price))) {
+            nextCost[it.ticker] = q * Number(it.price) * fx;
+          }
+        }
       }
       setFillPrices(prev => ({ ...next, ...prev }));
+      setFillQtys(prev => ({ ...nextQty, ...prev }));
+      setFillCostBase(prev => ({ ...nextCost, ...prev }));
       setConfirmExecuted(false);
     } finally {
       setLoadingPlan(false);
@@ -248,7 +326,7 @@ export default function TsmomCommandCenter() {
   async function loadLedger() {
     setLoadingLedger(true);
     try {
-      setLedger(await tsmom.listLedger({ limit: 500 }));
+      setLedger(await tsmom.listLedger({ portfolioId, limit: 500 }));
     } finally {
       setLoadingLedger(false);
     }
@@ -257,7 +335,7 @@ export default function TsmomCommandCenter() {
   async function loadTrades() {
     setLoadingTrades(true);
     try {
-      setTrades(await tsmom.listTrades({ limit: 1000, strategyTagPrefix: "TSMOM" }));
+      setTrades(await tsmom.listTrades({ portfolioId, limit: 1000, strategyTagPrefix: "TSMOM" }));
     } finally {
       setLoadingTrades(false);
     }
@@ -286,7 +364,7 @@ export default function TsmomCommandCenter() {
   async function loadPerformance() {
     setLoadingPerf(true);
     try {
-      setPerf(await tsmom.getPerformance({ years: 5, benchmark: null }));
+      setPerf(await tsmom.getPerformance({ portfolioId, years: 5, benchmark: null }));
     } finally {
       setLoadingPerf(false);
     }
@@ -321,6 +399,7 @@ export default function TsmomCommandCenter() {
       return;
     }
     await tsmom.addLedgerEntry({
+      portfolioId,
       ts: Date.now(),
       amount,
       type: cashType,
@@ -334,12 +413,21 @@ export default function TsmomCommandCenter() {
 
   useEffect(() => {
     loadUniverse();
-    loadLedger();
-    loadTrades();
+    loadPortfolios();
+    loadUsdIls();
     loadSync();
     loadSignalMatrix();
-    loadPerformance();
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('tsmom.portfolioId', String(portfolioId));
+    loadLedger();
+    loadTrades();
+    loadPerformance();
+    loadPortfolioUniverse();
+    setPlan(null);
+    setConfirmExecuted(false);
+  }, [portfolioId]);
 
   const pulse = useMemo(() => {
     const equity = Number(plan?.equityNIS);
@@ -392,18 +480,31 @@ export default function TsmomCommandCenter() {
       .filter(it => it.action !== "HOLD" && it.deltaQty !== 0)
       .map(it => {
         const side = it.deltaQty > 0 ? "BUY" : "SELL";
-        const qty = Math.abs(it.deltaQty);
-        const price = Number(fillPrices[it.ticker]);
-        return { ticker: it.ticker, side, qty, price };
+        const qty = Number(fillQtys[it.ticker] ?? Math.abs(it.deltaQty));
+        const price = Number(fillPrices[it.ticker] ?? it.price);
+        const notionalBase = Number(fillCostBase[it.ticker]);
+        return { ticker: it.ticker, side, qty, price, notionalBase };
       })
-      .filter(t => Number.isFinite(t.price) && t.price > 0);
-  }, [plan, fillPrices]);
+      .filter(t => Number.isFinite(t.qty) && t.qty > 0 && Number.isFinite(t.price) && t.price > 0);
+  }, [plan, fillPrices, fillQtys, fillCostBase]);
 
   async function executeTrades() {
     if (!plan) return;
     if (!confirmExecuted) {
       alert("Please confirm you executed these trades in your bank before recording them.");
       return;
+    }
+
+    const baseCurrency = plan.baseCurrency || 'ILS';
+
+    for (const t of tradeDraft) {
+      const isUsdAsset = !String(t.ticker).toUpperCase().endsWith('.TA');
+      if (baseCurrency === 'ILS' && isUsdAsset) {
+        if (!Number.isFinite(Number(t.notionalBase)) || Number(t.notionalBase) <= 0) {
+          alert(`Missing Cost (ILS) for ${t.ticker}. Provide the executed cost in ILS so NAV stays correct.`);
+          return;
+        }
+      }
     }
 
     const cashFlows: any[] = [];
@@ -423,17 +524,24 @@ export default function TsmomCommandCenter() {
     }
 
     const payload = {
+      portfolioId,
       ts: Date.now(),
       strategyTag: "TSMOM_TURBO_V2",
       notes: notes || undefined,
-      commissionNIS: Number(commissionNIS) || 5,
-      trades: tradeDraft.map(t => ({
-        ticker: t.ticker,
-        side: t.side,
-        qty: t.qty,
-        price: t.price,
-        meta: { source: "tsmom-ui" },
-      })),
+      commissionBase: Number(commissionNIS) || 5,
+      trades: tradeDraft.map(t => {
+        const isIls = String(t.ticker).toUpperCase().endsWith('.TA');
+        const tradeCurrency = isIls ? 'ILS' : 'USD';
+        return {
+          ticker: t.ticker,
+          side: t.side,
+          qty: t.qty,
+          price: t.price,
+          tradeCurrency,
+          ...(Number.isFinite(Number(t.notionalBase)) && Number(t.notionalBase) > 0 ? { notionalBase: Number(t.notionalBase) } : {}),
+          meta: { source: "tsmom-ui", kind: 'execution' },
+        };
+      }),
       ...(cashFlows.length ? { cashFlows } : {}),
     };
 
@@ -466,7 +574,22 @@ export default function TsmomCommandCenter() {
 
   return (
     <div className="stack">
-      <h2 style={{ marginTop: 0 }}>TSMOM Command Center</h2>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ marginTop: 0, marginBottom: 0 }}>TSMOM Command Center</h2>
+        {portfoliosApi && (
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <span style={{ color: '#9aa4b2', fontSize: 12 }}>Portfolio</span>
+            <select value={portfolioId} onChange={e => setPortfolioId(Number(e.target.value))}>
+              {portfolios.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} (#{p.id})
+                </option>
+              ))}
+              {!portfolios.length && <option value={1}>Default (#1)</option>}
+            </select>
+          </div>
+        )}
+      </div>
 
       <div className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -477,9 +600,9 @@ export default function TsmomCommandCenter() {
         </div>
 
         <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
-          <span className="bt-badge">Equity: {pulse.hasPlan ? pulse.equity.toFixed(0) + ' NIS' : '—'}</span>
-          <span className="bt-badge">Cash: {pulse.hasPlan ? pulse.cash.toFixed(0) + ' NIS' : '—'}</span>
-          <span className="bt-badge">Holdings: {pulse.hasPlan ? pulse.holdings.toFixed(0) + ' NIS' : '—'}</span>
+          <span className="bt-badge">Equity: {pulse.hasPlan ? pulse.equity.toFixed(0) + ' ' + (plan?.baseCurrency || 'ILS') : '—'}</span>
+          <span className="bt-badge">Cash: {pulse.hasPlan ? pulse.cash.toFixed(0) + ' ' + (plan?.baseCurrency || 'ILS') : '—'}</span>
+          <span className="bt-badge">Holdings: {pulse.hasPlan ? pulse.holdings.toFixed(0) + ' ' + (plan?.baseCurrency || 'ILS') : '—'}</span>
           <span className="bt-badge">Monthly P&L: {pulse.mtdPct == null ? '—' : (pulse.mtdPct >= 0 ? '+' : '') + pulse.mtdPct.toFixed(2) + '%'}</span>
           <span className={`bt-badge ${syncStatus?.openFlags ? 'warn' : ''}`}>Open flags: {syncStatus?.openFlags ?? '—'}</span>
         </div>
@@ -830,6 +953,65 @@ export default function TsmomCommandCenter() {
           </button>
         </div>
 
+        {portfoliosApi && (
+          <div style={{ marginTop: 10 }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div style={{ color: '#9aa4b2' }}>
+                Portfolio Universe (scoped): {portfolioUniverse.length} tickers
+              </div>
+              <button className="ghost" onClick={loadPortfolioUniverse}>
+                Refresh
+              </button>
+            </div>
+
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              <input
+                value={newUniverseTicker}
+                onChange={e => setNewUniverseTicker(e.target.value)}
+                placeholder="Add ticker to this portfolio"
+                style={{ minWidth: 260 }}
+              />
+              <button
+                className="primary"
+                onClick={async () => {
+                  const ticker = newUniverseTicker.trim().toUpperCase();
+                  if (!ticker) return;
+                  try {
+                    await portfoliosApi.universe.addTicker({ portfolioId, ticker });
+                    setNewUniverseTicker('');
+                    await loadPortfolioUniverse();
+                  } catch (e: any) {
+                    alert(String(e?.message || e));
+                  }
+                }}
+              >
+                Add (preflight)
+              </button>
+            </div>
+
+            {!!portfolioUniverse.length && (
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                {portfolioUniverse.slice(0, 60).map(t => (
+                  <button
+                    key={t}
+                    className="secondary"
+                    title="Remove from portfolio universe"
+                    onClick={async () => {
+                      await portfoliosApi.universe.removeTicker({ portfolioId, ticker: t });
+                      await loadPortfolioUniverse();
+                    }}
+                  >
+                    {t} ×
+                  </button>
+                ))}
+                {portfolioUniverse.length > 60 && (
+                  <span style={{ color: '#9aa4b2' }}>…and {portfolioUniverse.length - 60} more</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         <table className="table">
           <thead>
             <tr>
@@ -881,7 +1063,7 @@ export default function TsmomCommandCenter() {
             step="any"
             value={cashAmount}
             onChange={e => setCashAmount(Number(e.target.value))}
-            placeholder="Amount (NIS)"
+            placeholder={`Amount (${plan?.baseCurrency || portfolios.find(p => p.id === portfolioId)?.base_currency || 'ILS'})`}
             style={{ width: 160 }}
           />
           <input
@@ -996,9 +1178,10 @@ export default function TsmomCommandCenter() {
           <>
             <div className="row" style={{ gap: 16, flexWrap: "wrap" }}>
               <span className="bt-badge">As of: {plan.asOf}</span>
-              <span className="bt-badge">Equity: {plan.equityNIS.toFixed(2)} NIS</span>
-              <span className="bt-badge">Cash: {plan.cashNIS.toFixed(2)} NIS</span>
-              <span className="bt-badge">Holdings: {plan.holdingsValueNIS.toFixed(2)} NIS</span>
+              <span className="bt-badge">Base: {plan.baseCurrency || 'ILS'}</span>
+              <span className="bt-badge">Equity: {plan.equityNIS.toFixed(2)} {plan.baseCurrency || 'ILS'}</span>
+              <span className="bt-badge">Cash: {plan.cashNIS.toFixed(2)} {plan.baseCurrency || 'ILS'}</span>
+              <span className="bt-badge">Holdings: {plan.holdingsValueNIS.toFixed(2)} {plan.baseCurrency || 'ILS'}</span>
               <span className="bt-badge">TopK: {plan.params.topK}</span>
               <span className="bt-badge">TargetVol: {plan.params.targetVolAnn}</span>
               <span className="bt-badge">EWMA COM: {plan.params.volCenterDaysCOM}</span>
@@ -1026,13 +1209,19 @@ export default function TsmomCommandCenter() {
                     <th className="num">Cur</th>
                     <th className="num">Tgt</th>
                     <th className="num">Δ</th>
-                    <th className="num">Fill Px</th>
+                    <th className="num">Exec Qty</th>
+                    <th className="num">Exec Px</th>
+                    <th className="num">Cost ({plan.baseCurrency || 'ILS'})</th>
                   </tr>
                 </thead>
                 <tbody>
                   {plan.items.map(it => {
                     const fillPx = fillPrices[it.ticker];
+                    const fillQty = fillQtys[it.ticker];
+                    const fillCost = fillCostBase[it.ticker];
                     const actionClass = it.action === "BUY" ? "pos" : it.action === "SELL" ? "neg" : "";
+                    const isUsdAsset = !String(it.ticker).toUpperCase().endsWith('.TA');
+                    const needsBaseCost = (plan.baseCurrency || 'ILS') === 'ILS' && isUsdAsset;
                     return (
                       <tr key={it.ticker}>
                         <td className={actionClass}>{it.action}</td>
@@ -1051,6 +1240,23 @@ export default function TsmomCommandCenter() {
                             <input
                               type="number"
                               step="any"
+                              value={fillQty ?? ""}
+                              placeholder={String(Math.abs(it.deltaQty || 0))}
+                              onChange={e => {
+                                const v = Number(e.target.value);
+                                setFillQtys(prev => ({ ...prev, [it.ticker]: v }));
+                              }}
+                              style={{ width: 110 }}
+                            />
+                          )}
+                        </td>
+                        <td className="num">
+                          {it.action === "HOLD" ? (
+                            "—"
+                          ) : (
+                            <input
+                              type="number"
+                              step="any"
                               value={fillPx ?? ""}
                               placeholder={it.price?.toString() ?? ""}
                               onChange={e => {
@@ -1061,12 +1267,32 @@ export default function TsmomCommandCenter() {
                             />
                           )}
                         </td>
+                        <td className="num">
+                          {it.action === "HOLD" ? (
+                            "—"
+                          ) : needsBaseCost ? (
+                            <input
+                              type="number"
+                              step="any"
+                              value={fillCost ?? ""}
+                              placeholder={"Cost in base currency"}
+                              onChange={e => {
+                                const v = Number(e.target.value);
+                                setFillCostBase(prev => ({ ...prev, [it.ticker]: v }));
+                              }}
+                              style={{ width: 140 }}
+                              title="For USD assets in an ILS portfolio, enter executed cost/proceeds in ILS."
+                            />
+                          ) : (
+                            <span style={{ color: '#9aa4b2' }}>—</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
                   {!plan.items.length && (
                     <tr>
-                      <td colSpan={10}>No plan items (need candles + active assets).</td>
+                      <td colSpan={12}>No plan items (need candles + active assets).</td>
                     </tr>
                   )}
                 </tbody>
@@ -1107,7 +1333,7 @@ export default function TsmomCommandCenter() {
                   value={commissionNIS}
                   onChange={e => setCommissionNIS(Number(e.target.value))}
                   style={{ width: 140 }}
-                  title="Commission per trade (NIS)"
+                  title={`Commission per trade (${plan?.baseCurrency || 'ILS'})`}
                 />
 
                 <button className="primary" onClick={executeTrades} disabled={!tradeDraft.length}>
@@ -1129,7 +1355,7 @@ export default function TsmomCommandCenter() {
                     onChange={e => setExecCashAmount(Number(e.target.value))}
                     style={{ width: 160 }}
                     placeholder="Amount"
-                    title="Cash flow amount (NIS)"
+                    title={`Cash flow amount (${plan?.baseCurrency || 'ILS'})`}
                   />
                   <input
                     style={{ minWidth: 280 }}

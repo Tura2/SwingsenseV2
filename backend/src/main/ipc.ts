@@ -13,6 +13,8 @@ import { runTickerBacktest, getLatestForTicker } from './services/backtest/backt
 import { computeTsmomSignalMatrix, computeTsmomTurboV2Plan } from './services/tsmom/planner.js';
 import { computeTsmomPerformanceSeries } from './services/tsmom/performance.js';
 import { runTsmomSandbox } from './services/tsmom/sandbox.js';
+import { applyLedgerToState, applyTradesToState, getDefaultPortfolioId, rebuildPortfolioStateFromHistory } from './services/wealth/portfolioState.js';
+import { computePortfolioSnapshot, getPortfolioBaseCurrency } from './services/wealth/portfolioSnapshot.js';
 // Backtest engine removed; stale imports deleted
 // --- Trending cache (60s TTL) ---
 interface TrendingItem { symbol: string; price: number; changePct: number; volume: number; }
@@ -22,6 +24,117 @@ const TRENDING_TTL_MS = 60_000;
 
 export function registerIpcHandlers() {
   const db = getDB();
+
+  // --- Portfolios / Wealth (client-facing primitives) ---
+  const Currency = z.enum(['USD', 'ILS']);
+  const PortfolioId = z.number().int().positive();
+
+  ipcMain.handle('portfolios:list', async () => {
+    return db
+      .prepare('SELECT id, name, base_currency, strategy_ref, created_at, meta FROM portfolios ORDER BY created_at ASC, id ASC')
+      .all();
+  });
+
+  ipcMain.handle('portfolios:create', async (_e, params: any) => {
+    const P = z.object({
+      name: z.string().trim().min(1).max(80),
+      baseCurrency: Currency.default('ILS').optional(),
+      strategyRef: z.string().trim().max(80).optional(),
+      meta: z.any().optional(),
+    });
+    const p = P.parse(params || {});
+    const now = Date.now();
+    const info = db
+      .prepare('INSERT INTO portfolios(name, base_currency, strategy_ref, created_at, meta) VALUES(?,?,?,?,?)')
+      .run(p.name, p.baseCurrency ?? 'ILS', p.strategyRef ?? null, now, p.meta ? JSON.stringify(p.meta) : null);
+    const id = Number(info.lastInsertRowid);
+    db.prepare('INSERT OR IGNORE INTO portfolio_states(portfolio_id, cash_base, positions_json, updated_at) VALUES(?,?,?,?)')
+      .run(id, 0, JSON.stringify({}), now);
+    return { id, name: p.name, base_currency: p.baseCurrency ?? 'ILS', strategy_ref: p.strategyRef ?? null, created_at: now, meta: p.meta ? JSON.stringify(p.meta) : null };
+  });
+
+  ipcMain.handle('portfolios:update', async (_e, params: any) => {
+    const P = z.object({
+      id: PortfolioId,
+      patch: z.object({
+        name: z.string().trim().min(1).max(80).optional(),
+        baseCurrency: Currency.optional(),
+        strategyRef: z.string().trim().max(80).optional().nullable(),
+        meta: z.any().optional().nullable(),
+      }),
+    });
+    const p = P.parse(params || {});
+    const existing = db.prepare('SELECT id FROM portfolios WHERE id=?').get(p.id) as any;
+    if (!existing) throw new Error('Portfolio not found');
+
+    const sets: string[] = [];
+    const args: any[] = [];
+    if (p.patch.name != null) { sets.push('name=?'); args.push(p.patch.name); }
+    if (p.patch.baseCurrency != null) { sets.push('base_currency=?'); args.push(p.patch.baseCurrency); }
+    if (p.patch.strategyRef !== undefined) { sets.push('strategy_ref=?'); args.push(p.patch.strategyRef ?? null); }
+    if (p.patch.meta !== undefined) { sets.push('meta=?'); args.push(p.patch.meta == null ? null : JSON.stringify(p.patch.meta)); }
+    if (!sets.length) return { ok: true };
+
+    db.prepare(`UPDATE portfolios SET ${sets.join(', ')} WHERE id=?`).run(...args, p.id);
+    return { ok: true };
+  });
+
+  ipcMain.handle('portfolios:delete', async (_e, portfolioId: number) => {
+    const id = PortfolioId.parse(portfolioId);
+    if (id === getDefaultPortfolioId()) throw new Error('Refusing to delete default portfolio');
+    db.prepare('DELETE FROM portfolios WHERE id=?').run(id);
+    return { ok: true };
+  });
+
+  ipcMain.handle('portfolios:getSnapshot', async (_e, params: any) => {
+    const P = z.object({ portfolioId: PortfolioId.optional() });
+    const p = P.parse(params || {});
+    const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
+    return computePortfolioSnapshot(pid);
+  });
+
+  ipcMain.handle('portfolios:universe:list', async (_e, params: any) => {
+    const P = z.object({ portfolioId: PortfolioId.optional() });
+    const p = P.parse(params || {});
+    const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
+    const rows = db.prepare('SELECT ticker FROM portfolio_universe WHERE portfolio_id=? ORDER BY ticker ASC').all(pid) as Array<{ ticker: string }>;
+    return rows.map(r => String(r.ticker).toUpperCase());
+  });
+
+  ipcMain.handle('portfolios:universe:addTicker', async (_e, params: any) => {
+    const P = z.object({
+      portfolioId: PortfolioId.optional(),
+      ticker: z.string().trim().toUpperCase().min(1).max(40),
+    });
+    const p = P.parse(params || {});
+    const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
+    const ticker = p.ticker;
+
+    // Pre-flight check: ensure we can fetch candles for the ticker.
+    try {
+      const candles = await getCandles(ticker, '6M');
+      if (!candles || candles.length < 5) {
+        throw new Error('No candles available');
+      }
+    } catch {
+      throw new Error(`Error: Could not fetch data for ${ticker}. Please verify the symbol.`);
+    }
+
+    db.prepare('INSERT OR IGNORE INTO portfolio_universe(portfolio_id, ticker, created_at) VALUES(?,?,?)')
+      .run(pid, ticker, Date.now());
+    return { ok: true };
+  });
+
+  ipcMain.handle('portfolios:universe:removeTicker', async (_e, params: any) => {
+    const P = z.object({
+      portfolioId: PortfolioId.optional(),
+      ticker: z.string().trim().toUpperCase().min(1).max(40),
+    });
+    const p = P.parse(params || {});
+    const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
+    db.prepare('DELETE FROM portfolio_universe WHERE portfolio_id=? AND ticker=?').run(pid, p.ticker);
+    return { ok: true };
+  });
 
   // Watchlists
   ipcMain.handle("watchlists:list", () => {
@@ -185,8 +298,11 @@ export function registerIpcHandlers() {
       .all();
   });
 
-  ipcMain.handle('tsmom:compute-plan', async () => {
-    return await computeTsmomTurboV2Plan();
+  ipcMain.handle('tsmom:compute-plan', async (_e, params: any) => {
+    const P = z.object({ portfolioId: z.number().int().positive().optional() });
+    const p = P.parse(params || {});
+    const portfolioId = Number(p.portfolioId ?? getDefaultPortfolioId());
+    return await computeTsmomTurboV2Plan({ portfolioId });
   });
 
   ipcMain.handle('tsmom:get-signal-matrix', async () => {
@@ -194,9 +310,14 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('tsmom:get-performance', async (_e, params: any) => {
-    const P = z.object({ years: z.number().int().positive().max(10).optional(), benchmark: z.string().trim().max(40).optional().nullable() });
+    const P = z.object({
+      portfolioId: z.number().int().positive().optional(),
+      years: z.number().int().positive().max(10).optional(),
+      benchmark: z.string().trim().max(40).optional().nullable(),
+    });
     const p = P.parse(params || {});
-    return await computeTsmomPerformanceSeries({ years: p.years, benchmark: p.benchmark ?? null });
+    const portfolioId = Number(p.portfolioId ?? getDefaultPortfolioId());
+    return await computeTsmomPerformanceSeries({ portfolioId, years: p.years, benchmark: p.benchmark ?? null });
   });
 
   ipcMain.handle('tsmom:sandbox-run', async (_e, params: any) => {
@@ -245,8 +366,12 @@ export function registerIpcHandlers() {
     const Trade = z.object({
       ticker: z.string().trim().toUpperCase().min(1).max(40),
       side: z.enum(['BUY','SELL']),
-      qty: z.number().positive(),
-      price: z.number().positive(),
+      qty: z.number().positive(), // actual executed qty
+      price: z.number().positive(), // actual executed price (in trade currency)
+      tradeCurrency: z.enum(['USD','ILS']).optional(),
+      fxRate: z.number().positive().optional(),
+      notionalBase: z.number().nonnegative().optional(), // gross value in portfolio base currency
+      feeBase: z.number().nonnegative().optional(),
       meta: z.any().optional(),
     });
 
@@ -259,51 +384,99 @@ export function registerIpcHandlers() {
     });
 
     const P = z.object({
+      portfolioId: z.number().int().positive().optional(),
       ts: z.number().int().positive(),
       strategyTag: z.string().max(40).optional(),
       notes: z.string().max(500).optional(),
-      commissionNIS: z.number().positive().max(500).optional(),
+      commissionNIS: z.number().positive().max(500).optional(), // legacy name
+      commissionBase: z.number().positive().max(500).optional(),
       trades: z.array(Trade).min(1),
       cashFlows: z.array(CashFlow).optional(),
     });
 
     const p = P.parse(params);
-    const fee = Number(p.commissionNIS ?? 5);
+    const portfolioId = Number(p.portfolioId ?? getDefaultPortfolioId());
+    const baseCurrency = getPortfolioBaseCurrency(portfolioId);
+    const defaultFeeBase = Number(p.commissionBase ?? p.commissionNIS ?? 5);
 
     const insTrade = db.prepare(`
-      INSERT INTO portfolio_trades(symbol, side, qty, price, ts, fee, strategy_tag, notes, meta)
-      VALUES(@symbol, @side, @qty, @price, @ts, @fee, @strategy_tag, @notes, @meta)
+      INSERT INTO portfolio_trades(portfolio_id, symbol, side, qty, price, trade_currency, fx_rate, notional_base, fee_base, ts, fee, strategy_tag, notes, meta)
+      VALUES(@portfolio_id, @symbol, @side, @qty, @price, @trade_currency, @fx_rate, @notional_base, @fee_base, @ts, @fee, @strategy_tag, @notes, @meta)
     `);
 
     const insLedger = db.prepare(`
-      INSERT INTO capital_ledger(ts, amount, type, description, meta)
-      VALUES(@ts, @amount, @type, @description, @meta)
+      INSERT INTO capital_ledger(portfolio_id, ts, amount, currency, fx_rate, type, description, meta)
+      VALUES(@portfolio_id, @ts, @amount, @currency, @fx_rate, @type, @description, @meta)
     `);
 
     const trx = db.transaction(() => {
+      const appliedTrades: Array<{ ticker: string; side: 'BUY'|'SELL'; qty: number; notionalBase: number; feeBase: number }> = [];
+
       for (const t of p.trades) {
+        const tradeCurrency = (t.tradeCurrency || baseCurrency);
+        const fxRate = t.fxRate;
+
+        let notionalBase = Number(t.notionalBase);
+        if (!Number.isFinite(notionalBase) || notionalBase < 0) {
+          const grossTrade = Number(t.qty) * Number(t.price);
+          if (tradeCurrency === baseCurrency) {
+            notionalBase = grossTrade;
+          } else {
+            if (!Number.isFinite(Number(fxRate)) || Number(fxRate) <= 0) {
+              throw new Error(`Missing fxRate for ${t.ticker} trade (${tradeCurrency}->${baseCurrency}). Provide notionalBase or fxRate.`);
+            }
+            notionalBase = grossTrade * Number(fxRate);
+          }
+        }
+
+        const feeBase = Number.isFinite(Number(t.feeBase)) ? Number(t.feeBase) : defaultFeeBase;
+        const legacyFee = baseCurrency === 'ILS' ? feeBase : null;
+
         insTrade.run({
+          portfolio_id: portfolioId,
           symbol: t.ticker,
           side: t.side,
           qty: t.qty,
           price: t.price,
+          trade_currency: tradeCurrency,
+          fx_rate: (tradeCurrency === baseCurrency) ? null : (Number.isFinite(Number(fxRate)) ? Number(fxRate) : null),
+          notional_base: notionalBase,
+          fee_base: feeBase,
           ts: p.ts,
-          fee,
+          fee: legacyFee,
           strategy_tag: p.strategyTag || null,
           notes: p.notes || null,
           meta: t.meta ? JSON.stringify(t.meta) : null,
         });
+
+        appliedTrades.push({ ticker: t.ticker, side: t.side, qty: t.qty, notionalBase, feeBase });
       }
 
       for (const c of p.cashFlows || []) {
         insLedger.run({
+          portfolio_id: portfolioId,
           ts: c.ts,
           amount: c.amount,
+          currency: baseCurrency,
+          fx_rate: null,
           type: c.type,
           description: c.description || null,
           meta: c.meta ? JSON.stringify(c.meta) : null,
         });
+        applyLedgerToState({ portfolioId, deltaCashBase: Number(c.amount || 0), ts: c.ts });
       }
+
+      applyTradesToState({
+        portfolioId,
+        ts: p.ts,
+        trades: appliedTrades.map(t => ({
+          ticker: t.ticker,
+          side: t.side,
+          qty: t.qty,
+          notionalBase: t.notionalBase,
+          feeBase: t.feeBase,
+        })),
+      });
     });
 
     trx();
@@ -311,16 +484,21 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('tsmom:list-ledger', async (_e, params: any) => {
-    const P = z.object({ limit: z.number().int().positive().max(2000).optional() });
+    const P = z.object({
+      portfolioId: z.number().int().positive().optional(),
+      limit: z.number().int().positive().max(2000).optional(),
+    });
     const p = P.parse(params || {});
+    const portfolioId = Number(p.portfolioId ?? getDefaultPortfolioId());
     const limit = p.limit ?? 500;
     return db
-      .prepare('SELECT id, ts, amount, type, description, meta FROM capital_ledger ORDER BY ts DESC, id DESC LIMIT ?')
-      .all(limit);
+      .prepare('SELECT id, ts, amount, type, description, meta, currency, fx_rate, portfolio_id FROM capital_ledger WHERE portfolio_id=? ORDER BY ts DESC, id DESC LIMIT ?')
+      .all(portfolioId, limit);
   });
 
   ipcMain.handle('tsmom:add-ledger-entry', async (_e, params: any) => {
     const P = z.object({
+      portfolioId: z.number().int().positive().optional(),
       ts: z.number().int().positive().optional(),
       amount: z.number(),
       type: z.enum(['DEPOSIT','WITHDRAWAL','ADJUSTMENT']),
@@ -328,31 +506,44 @@ export function registerIpcHandlers() {
       meta: z.any().optional(),
     });
     const p = P.parse(params);
+    const portfolioId = Number(p.portfolioId ?? getDefaultPortfolioId());
+    const baseCurrency = getPortfolioBaseCurrency(portfolioId);
     const ts = Number(p.ts ?? Date.now());
     const info = db
-      .prepare('INSERT INTO capital_ledger(ts, amount, type, description, meta) VALUES(?,?,?,?,?)')
+      .prepare('INSERT INTO capital_ledger(portfolio_id, ts, amount, currency, fx_rate, type, description, meta) VALUES(?,?,?,?,?,?,?,?)')
       .run(
+        portfolioId,
         ts,
         p.amount,
+        baseCurrency,
+        null,
         p.type,
         p.description || null,
         p.meta ? JSON.stringify(p.meta) : null,
       );
+
+    applyLedgerToState({ portfolioId, deltaCashBase: Number(p.amount || 0), ts });
     return { id: Number(info.lastInsertRowid), ts };
   });
 
   ipcMain.handle('tsmom:delete-ledger-entry', async (_e, ledgerId: number) => {
     const id = z.number().int().positive().parse(ledgerId);
+    const row = db.prepare('SELECT portfolio_id FROM capital_ledger WHERE id=?').get(id) as any;
     db.prepare('DELETE FROM capital_ledger WHERE id=?').run(id);
+    // Deletes are admin operations; rebuild cached state for correctness.
+    const pid = Number(row?.portfolio_id || getDefaultPortfolioId());
+    rebuildPortfolioStateFromHistory(pid);
     return { ok: true };
   });
 
   ipcMain.handle('tsmom:list-trades', async (_e, params: any) => {
     const P = z.object({
+      portfolioId: z.number().int().positive().optional(),
       limit: z.number().int().positive().max(2000).optional(),
       strategyTagPrefix: z.string().trim().max(40).optional(),
     });
     const p = P.parse(params || {});
+    const portfolioId = Number(p.portfolioId ?? getDefaultPortfolioId());
     const limit = p.limit ?? 500;
 
     if (p.strategyTagPrefix) {
@@ -361,21 +552,22 @@ export function registerIpcHandlers() {
         .prepare(`
           SELECT id, symbol, side, qty, price, ts, fee, strategy_tag, notes, meta
           FROM portfolio_trades
-          WHERE strategy_tag LIKE ?
+          WHERE portfolio_id=? AND strategy_tag LIKE ?
           ORDER BY ts DESC, id DESC
           LIMIT ?
         `)
-        .all(like, limit);
+        .all(portfolioId, like, limit);
     }
 
     return db
       .prepare(`
         SELECT id, symbol, side, qty, price, ts, fee, strategy_tag, notes, meta
         FROM portfolio_trades
+        WHERE portfolio_id=?
         ORDER BY ts DESC, id DESC
         LIMIT ?
       `)
-      .all(limit);
+      .all(portfolioId, limit);
   });
 
   ipcMain.handle('tsmom:list-sync-runs', async (_e, params: any) => {
@@ -569,22 +761,33 @@ export function registerIpcHandlers() {
       ts: z.number().int().positive()
     });
     const t = T.parse(trade);
-    db.prepare("INSERT INTO portfolio_trades(symbol, side, qty, price, ts) VALUES (?,?,?,?,?)")
-      .run(t.symbol, t.side, t.qty, t.price, t.ts);
+    const portfolioId = getDefaultPortfolioId();
+    db.prepare("INSERT INTO portfolio_trades(portfolio_id, symbol, side, qty, price, ts, notional_base, trade_currency, fee_base) VALUES (?,?,?,?,?,?,?,?,?)")
+      .run(portfolioId, t.symbol, t.side, t.qty, t.price, t.ts, Number(t.qty) * Number(t.price), null, 0);
+    applyTradesToState({
+      portfolioId,
+      ts: t.ts,
+      trades: [{ ticker: t.symbol, side: t.side, qty: t.qty, notionalBase: Number(t.qty) * Number(t.price), feeBase: 0 }],
+    });
   });
 
   ipcMain.handle("portfolio:listTrades", () => {
-    return db.prepare("SELECT id, symbol, side, qty, price, ts FROM portfolio_trades ORDER BY ts DESC").all();
+    const portfolioId = getDefaultPortfolioId();
+    return db.prepare("SELECT id, symbol, side, qty, price, ts FROM portfolio_trades WHERE portfolio_id=? ORDER BY ts DESC").all(portfolioId);
   });
 
   ipcMain.handle("portfolio:deleteTrade", (_e, tradeId: number) => {
     const id = z.number().int().positive().parse(tradeId);
+    const row = db.prepare('SELECT portfolio_id FROM portfolio_trades WHERE id=?').get(id) as any;
     db.prepare("DELETE FROM portfolio_trades WHERE id=?").run(id);
+    const pid = Number(row?.portfolio_id || getDefaultPortfolioId());
+    rebuildPortfolioStateFromHistory(pid);
   });
 
   ipcMain.handle("portfolio:positions", () => {
     // Aggregate qty & avgPrice, fetch last close from DB
-    const trades = db.prepare("SELECT symbol, side, qty, price FROM portfolio_trades").all() as any[];
+    const portfolioId = getDefaultPortfolioId();
+    const trades = db.prepare("SELECT symbol, side, qty, price FROM portfolio_trades WHERE portfolio_id=?").all(portfolioId) as any[];
     const map: Record<string, { qty: number; cost: number }> = {};
     for (const t of trades) {
       const s = t.symbol as string;

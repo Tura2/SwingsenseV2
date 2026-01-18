@@ -2,6 +2,8 @@ import { getDB } from '../../db.js';
 import type { Candle } from '../../../shared/types.js';
 import type { RebalancePlan, RebalancePlanItem, SignalMatrix, SignalMatrixRow, TsmomAssetRow } from './types.js';
 import { resolveTicker } from './tickerMapper.js';
+import { getPortfolioState } from '../wealth/portfolioState.js';
+import { getPortfolioBaseCurrency } from '../wealth/portfolioSnapshot.js';
 
 function toISODate(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
@@ -65,41 +67,40 @@ function computeSigmaAnn(closes: number[], com: number): number | null {
   return Math.sqrt(v) * Math.sqrt(252);
 }
 
-function getCurrentPositions(db: any): Record<string, number> {
-  // Sum BUY/SELL quantities
-  const trades = db.prepare('SELECT symbol, side, qty FROM portfolio_trades').all() as Array<{ symbol: string; side: 'BUY'|'SELL'; qty: number }>;
-  const map: Record<string, number> = {};
-  for (const t of trades) {
-    const s = String(t.symbol || '').toUpperCase();
-    if (!s) continue;
-    const q = Number(t.qty);
-    if (!Number.isFinite(q)) continue;
-    map[s] = (map[s] || 0) + (t.side === 'BUY' ? q : -q);
-  }
-  return map;
+type BaseCurrency = 'USD' | 'ILS';
+
+function inferAssetCurrency(ticker: string): BaseCurrency {
+  const t = String(ticker || '').toUpperCase();
+  if (t.endsWith('.TA')) return 'ILS';
+  return 'USD';
 }
 
-function getCashBalance(db: any, commissionDefault: number): number {
-  const led = db.prepare('SELECT amount FROM capital_ledger').all() as Array<{ amount: number }>;
-  const ledgerSum = led.reduce((a, r) => a + (Number(r.amount) || 0), 0);
-
-  const trades = db.prepare('SELECT side, qty, price, fee FROM portfolio_trades').all() as Array<{ side: 'BUY'|'SELL'; qty: number; price: number; fee?: number }>;
-  let cash = ledgerSum;
-  for (const t of trades) {
-    const qty = Number(t.qty);
-    const price = Number(t.price);
-    const fee = Number(t.fee);
-    const commission = Number.isFinite(fee) ? fee : commissionDefault;
-    if (!Number.isFinite(qty) || !Number.isFinite(price)) continue;
-    const gross = qty * price;
-    if (t.side === 'BUY') cash -= gross + commission;
-    else cash += gross - commission;
+function getUsdIls(db: any): number | null {
+  try {
+    const row = db.prepare("SELECT close FROM candles WHERE symbol='USDILS=X' AND timeframe='1d' ORDER BY ts DESC LIMIT 1").get() as any;
+    const c = Number(row?.close);
+    return Number.isFinite(c) && c > 0 ? c : null;
+  } catch {
+    return null;
   }
-  return cash;
 }
 
-export async function computeTsmomTurboV2Plan(): Promise<RebalancePlan> {
+function fxRateToBase(db: any, base: BaseCurrency, assetCcy: BaseCurrency): { rate: number; warning?: string } {
+  if (base === assetCcy) return { rate: 1 };
+  const usdIls = getUsdIls(db);
+  if (!usdIls) {
+    return { rate: 1, warning: `Missing FX candle for USDILS=X; using 1.0 for ${assetCcy}->${base} conversion.` };
+  }
+  // usdIls is ILS per USD
+  if (assetCcy === 'USD' && base === 'ILS') return { rate: usdIls };
+  if (assetCcy === 'ILS' && base === 'USD') return { rate: 1 / usdIls };
+  return { rate: 1 };
+}
+
+export async function computeTsmomTurboV2Plan(opts?: { portfolioId?: number }): Promise<RebalancePlan & { baseCurrency: BaseCurrency; raw: { items: Array<{ ticker: string; momentum: number | null; sigmaAnn: number | null; price: number | null; rawWeight: number; targetWeight: number }> } }> {
   const db = getDB();
+  const portfolioId = Number(opts?.portfolioId ?? 1);
+  const baseCurrency = getPortfolioBaseCurrency(portfolioId) as BaseCurrency;
 
   const params = {
     lookbackTradingDays: 63,
@@ -132,12 +133,38 @@ export async function computeTsmomTurboV2Plan(): Promise<RebalancePlan> {
     // ignore
   }
 
-  const assets = db
-    .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
-    .all() as TsmomAssetRow[];
+  // Universe: if portfolio_universe is populated for this portfolio, use it; otherwise fall back to all active assets.
+  const uniRows = db.prepare('SELECT ticker FROM portfolio_universe WHERE portfolio_id=? ORDER BY ticker ASC').all(portfolioId) as Array<{ ticker: string }>;
+  const uniSet = new Set(uniRows.map(r => String(r.ticker).toUpperCase()));
 
-  const positions = getCurrentPositions(db);
-  const cashNIS = getCashBalance(db, params.commissionNIS);
+  let assets: TsmomAssetRow[];
+  if (uniSet.size > 0) {
+    // Map tickers to assets rows when available; otherwise create minimal placeholder rows.
+    const byTicker = new Map(
+      (db.prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets").all() as TsmomAssetRow[])
+        .map(a => [String(a.ticker).toUpperCase(), a])
+    );
+    const now = Date.now();
+    assets = Array.from(uniSet).map(t => byTicker.get(t) || ({
+      ticker: t,
+      name: null,
+      category: 'portfolio',
+      status: 'active',
+      yahoo_symbol: null,
+      price_multiplier: 1,
+      created_at: now,
+      updated_at: now,
+      meta: null,
+    } as TsmomAssetRow));
+  } else {
+    assets = db
+      .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
+      .all() as TsmomAssetRow[];
+  }
+
+  const state = getPortfolioState(portfolioId);
+  const positions = state.positions;
+  const cashBase = Number(state.cashBase);
 
   // Load close histories
   const historyStmt = db.prepare('SELECT ts, close FROM candles WHERE symbol=? AND timeframe=\'1d\' ORDER BY ts ASC');
@@ -198,15 +225,18 @@ export async function computeTsmomTurboV2Plan(): Promise<RebalancePlan> {
   const scale = sumRaw > params.maxLeverage ? (params.maxLeverage / sumRaw) : 1;
 
   // Compute holdings value using last prices
-  let holdingsValueNIS = 0;
+  let holdingsValueBase = 0;
   for (const it of scored) {
     const q = Number(it.currentQty || 0);
     if (!Number.isFinite(q) || !Number.isFinite(it.price || NaN)) continue;
-    holdingsValueNIS += q * Number(it.price);
+    const assetCcy = inferAssetCurrency(it.ticker);
+    const { rate, warning } = fxRateToBase(db, baseCurrency, assetCcy);
+    if (warning) warnings.push(warning);
+    holdingsValueBase += q * Number(it.price) * rate;
   }
 
-  const equityNIS = cashNIS + holdingsValueNIS;
-  if (equityNIS <= 0) warnings.push('Equity is <= 0 based on capital_ledger and trades; add a DEPOSIT in capital_ledger to start.');
+  const equityBase = cashBase + holdingsValueBase;
+  if (equityBase <= 0) warnings.push('Equity is <= 0; add a DEPOSIT to start.');
 
   // Apply targets
   const rawMap = new Map(raws.map(r => [r.ticker, r.raw * scale]));
@@ -216,8 +246,11 @@ export async function computeTsmomTurboV2Plan(): Promise<RebalancePlan> {
     it.targetWeight = w;
 
     const px = Number(it.price);
-    const targetValue = equityNIS * w;
-    const targetQty = (Number.isFinite(px) && px > 0) ? Math.floor(targetValue / px) : 0;
+    const assetCcy = inferAssetCurrency(it.ticker);
+    const { rate } = fxRateToBase(db, baseCurrency, assetCcy);
+    const pxBase = (Number.isFinite(px) && px > 0) ? px * rate : 0;
+    const targetValueBase = equityBase * w;
+    const targetQty = (Number.isFinite(pxBase) && pxBase > 0) ? Math.floor(targetValueBase / pxBase) : 0;
 
     it.targetQty = targetQty;
     it.deltaQty = targetQty - it.currentQty;
@@ -234,12 +267,23 @@ export async function computeTsmomTurboV2Plan(): Promise<RebalancePlan> {
 
   return {
     asOf: toISODate(Date.now()),
+    baseCurrency,
     params,
-    equityNIS,
-    cashNIS,
-    holdingsValueNIS,
+    equityNIS: baseCurrency === 'ILS' ? equityBase : equityBase,
+    cashNIS: baseCurrency === 'ILS' ? cashBase : cashBase,
+    holdingsValueNIS: baseCurrency === 'ILS' ? holdingsValueBase : holdingsValueBase,
     items,
     warnings,
+    raw: {
+      items: scored.map(s => ({
+        ticker: s.ticker,
+        momentum: s.momentum,
+        sigmaAnn: s.sigmaAnn,
+        price: s.price,
+        rawWeight: raws.find(r => r.ticker === s.ticker)?.raw ?? 0,
+        targetWeight: s.targetWeight,
+      })),
+    },
   };
 }
 

@@ -54,21 +54,34 @@ contextBridge.exposeInMainWorld("api", {
 
   tsmom: {
     getUniverse: () => ipcRenderer.invoke('tsmom:get-universe'),
-    computePlan: () => ipcRenderer.invoke('tsmom:compute-plan'),
+    computePlan: (opts?: { portfolioId?: number }) => ipcRenderer.invoke('tsmom:compute-plan', opts || {}),
     getSignalMatrix: () => ipcRenderer.invoke('tsmom:get-signal-matrix'),
-    getPerformance: (opts?: { years?: number; benchmark?: string | null }) => ipcRenderer.invoke('tsmom:get-performance', opts || {}),
+    getPerformance: (opts?: { portfolioId?: number; years?: number; benchmark?: string | null }) => ipcRenderer.invoke('tsmom:get-performance', opts || {}),
     sandboxRun: (opts?: { years?: number; benchmark?: string | null; params?: any }) => ipcRenderer.invoke('tsmom:sandbox-run', opts || {}),
     sandboxCompare: (opts: { years?: number; benchmark?: string | null; runs: Array<{ label: string; params: any }> }) => ipcRenderer.invoke('tsmom:sandbox-compare', opts),
     executeTrades: (payload: any) => ipcRenderer.invoke('tsmom:execute-trades', payload),
-    listLedger: (opts?: { limit?: number }) => ipcRenderer.invoke('tsmom:list-ledger', opts || {}),
+    listLedger: (opts?: { portfolioId?: number; limit?: number }) => ipcRenderer.invoke('tsmom:list-ledger', opts || {}),
     addLedgerEntry: (payload: any) => ipcRenderer.invoke('tsmom:add-ledger-entry', payload),
     deleteLedgerEntry: (id: number) => ipcRenderer.invoke('tsmom:delete-ledger-entry', id),
-    listTrades: (opts?: { limit?: number; strategyTagPrefix?: string }) => ipcRenderer.invoke('tsmom:list-trades', opts || {}),
+    listTrades: (opts?: { portfolioId?: number; limit?: number; strategyTagPrefix?: string }) => ipcRenderer.invoke('tsmom:list-trades', opts || {}),
     getSyncStatus: () => ipcRenderer.invoke('tsmom:get-sync-status'),
     listSyncRuns: (opts?: { limit?: number }) => ipcRenderer.invoke('tsmom:list-sync-runs', opts || {}),
     listPriceFlags: (opts?: { limit?: number; onlyUnacknowledged?: boolean; types?: string[]; ticker?: string }) => ipcRenderer.invoke('tsmom:list-price-flags', opts || {}),
     ackPriceFlag: (id: number) => ipcRenderer.invoke('tsmom:ack-price-flag', id),
     applyCorporateAction: (flagId: number) => ipcRenderer.invoke('tsmom:apply-corp-action', { flagId }),
+  },
+
+  portfolios: {
+    list: () => ipcRenderer.invoke('portfolios:list'),
+    create: (payload: any) => ipcRenderer.invoke('portfolios:create', payload),
+    update: (payload: any) => ipcRenderer.invoke('portfolios:update', payload),
+    delete: (id: number) => ipcRenderer.invoke('portfolios:delete', id),
+    getSnapshot: (opts?: { portfolioId?: number }) => ipcRenderer.invoke('portfolios:getSnapshot', opts || {}),
+    universe: {
+      list: (opts?: { portfolioId?: number }) => ipcRenderer.invoke('portfolios:universe:list', opts || {}),
+      addTicker: (payload: any) => ipcRenderer.invoke('portfolios:universe:addTicker', payload),
+      removeTicker: (payload: any) => ipcRenderer.invoke('portfolios:universe:removeTicker', payload),
+    },
   },
 });
 

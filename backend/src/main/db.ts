@@ -29,6 +29,30 @@ export async function initDB(dbPath: string) {
     value TEXT
   );
 
+  -- Wealth / Portfolios
+  CREATE TABLE IF NOT EXISTS portfolios (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    base_currency TEXT NOT NULL DEFAULT 'ILS' CHECK (base_currency IN ('USD','ILS')),
+    strategy_ref TEXT,
+    created_at INTEGER NOT NULL,
+    meta TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS portfolio_states (
+    portfolio_id INTEGER PRIMARY KEY REFERENCES portfolios(id) ON DELETE CASCADE,
+    cash_base REAL NOT NULL DEFAULT 0,
+    positions_json TEXT NOT NULL DEFAULT '{}',
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS portfolio_universe (
+    portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+    ticker TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (portfolio_id, ticker)
+  );
+
   CREATE TABLE IF NOT EXISTS watchlists (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -44,12 +68,20 @@ export async function initDB(dbPath: string) {
 
   CREATE TABLE IF NOT EXISTS portfolio_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id INTEGER NOT NULL DEFAULT 1,
     symbol TEXT NOT NULL,
     side TEXT NOT NULL CHECK (side IN ('BUY','SELL')),
     qty REAL NOT NULL,
     price REAL NOT NULL,
+    trade_currency TEXT,
+    fx_rate REAL,
+    notional_base REAL,
+    fee_base REAL,
     ts INTEGER NOT NULL
   );
+
+  CREATE INDEX IF NOT EXISTS idx_portfolio_trades_ts ON portfolio_trades(ts);
+  CREATE INDEX IF NOT EXISTS idx_portfolio_trades_pid_ts ON portfolio_trades(portfolio_id, ts);
 
   -- TSMOM Command Center
   CREATE TABLE IF NOT EXISTS assets (
@@ -67,13 +99,28 @@ export async function initDB(dbPath: string) {
 
   CREATE TABLE IF NOT EXISTS capital_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id INTEGER NOT NULL DEFAULT 1,
     ts INTEGER NOT NULL,
     amount REAL NOT NULL,
+    currency TEXT,
+    fx_rate REAL,
     type TEXT NOT NULL CHECK (type IN ('DEPOSIT','WITHDRAWAL','ADJUSTMENT')),
     description TEXT,
     meta TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_capital_ledger_ts ON capital_ledger(ts);
+  CREATE INDEX IF NOT EXISTS idx_capital_ledger_pid_ts ON capital_ledger(portfolio_id, ts);
+
+  CREATE TABLE IF NOT EXISTS portfolio_nav_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL,
+    nav_base REAL NOT NULL,
+    cash_base REAL NOT NULL,
+    holdings_value_base REAL NOT NULL,
+    meta TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_portfolio_nav_pid_ts ON portfolio_nav_history(portfolio_id, ts);
 
   -- TSMOM Sync observability
   CREATE TABLE IF NOT EXISTS tsmom_sync_runs (
@@ -129,16 +176,70 @@ export async function initDB(dbPath: string) {
   `;
   db.exec(createSQL);
 
+  // seed a default portfolio if none
+  try {
+    const pCount = db.prepare("SELECT COUNT(*) as c FROM portfolios").get() as { c: number };
+    if (Number(pCount?.c || 0) === 0) {
+      const now = Date.now();
+      db.prepare("INSERT INTO portfolios(id, name, base_currency, strategy_ref, created_at, meta) VALUES(?,?,?,?,?,?)")
+        .run(1, 'Default', 'ILS', 'TSMOM_TURBO_V2', now, null);
+      db.prepare("INSERT OR IGNORE INTO portfolio_states(portfolio_id, cash_base, positions_json, updated_at) VALUES(?,?,?,?)")
+        .run(1, 0, JSON.stringify({}), now);
+    }
+  } catch {
+    // ignore
+  }
+
   // --- Lightweight migrations: add portfolio_trades v2 columns if missing ---
   try {
     const cols = db.prepare("PRAGMA table_info(portfolio_trades)").all() as { name: string }[];
     const names = new Set(cols.map(c => c.name));
     const add = (sql: string) => { try { db.prepare(sql).run(); } catch { /* ignore */ } };
+    if (!names.has('portfolio_id')) add("ALTER TABLE portfolio_trades ADD COLUMN portfolio_id INTEGER NOT NULL DEFAULT 1");
     if (!names.has('fee')) add("ALTER TABLE portfolio_trades ADD COLUMN fee REAL");
     if (!names.has('strategy_tag')) add("ALTER TABLE portfolio_trades ADD COLUMN strategy_tag TEXT");
     if (!names.has('notes')) add("ALTER TABLE portfolio_trades ADD COLUMN notes TEXT");
     if (!names.has('meta')) add("ALTER TABLE portfolio_trades ADD COLUMN meta TEXT");
+    if (!names.has('trade_currency')) add("ALTER TABLE portfolio_trades ADD COLUMN trade_currency TEXT");
+    if (!names.has('fx_rate')) add("ALTER TABLE portfolio_trades ADD COLUMN fx_rate REAL");
+    if (!names.has('notional_base')) add("ALTER TABLE portfolio_trades ADD COLUMN notional_base REAL");
+    if (!names.has('fee_base')) add("ALTER TABLE portfolio_trades ADD COLUMN fee_base REAL");
   } catch {}
+
+  // --- Lightweight migrations: add capital_ledger portfolio + currency columns ---
+  try {
+    const cols = db.prepare("PRAGMA table_info(capital_ledger)").all() as { name: string }[];
+    const names = new Set(cols.map(c => c.name));
+    const add = (sql: string) => { try { db.prepare(sql).run(); } catch { /* ignore */ } };
+    if (!names.has('portfolio_id')) add("ALTER TABLE capital_ledger ADD COLUMN portfolio_id INTEGER NOT NULL DEFAULT 1");
+    if (!names.has('currency')) add("ALTER TABLE capital_ledger ADD COLUMN currency TEXT");
+    if (!names.has('fx_rate')) add("ALTER TABLE capital_ledger ADD COLUMN fx_rate REAL");
+  } catch {}
+
+  // Ensure portfolio_states row exists for every portfolio
+  try {
+    const now = Date.now();
+    const portfolios = db.prepare('SELECT id FROM portfolios').all() as Array<{ id: number }>;
+    const ins = db.prepare("INSERT OR IGNORE INTO portfolio_states(portfolio_id, cash_base, positions_json, updated_at) VALUES(?,?,?,?)");
+    for (const p of portfolios) ins.run(Number(p.id), 0, JSON.stringify({}), now);
+  } catch {
+    // ignore
+  }
+
+  // One-time initialization: build portfolio_states cache from existing ledger/trades.
+  // This prevents slow full-history replays for snapshot rendering going forward.
+  try {
+    const key = 'portfolio_states_initialized_v1';
+    const has = db.prepare('SELECT value FROM meta WHERE key=?').get(key) as { value?: string } | undefined;
+    if (!has?.value) {
+      const { rebuildPortfolioStateFromHistory } = await import('./services/wealth/portfolioState.js');
+      const portfolios = db.prepare('SELECT id FROM portfolios').all() as Array<{ id: number }>;
+      for (const p of portfolios) rebuildPortfolioStateFromHistory(Number(p.id));
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(key, String(Date.now()));
+    }
+  } catch {
+    // ignore
+  }
 
   // seed a default watchlist if none
   const count = db.prepare("SELECT COUNT(*) as c FROM watchlists").get() as { c: number };
