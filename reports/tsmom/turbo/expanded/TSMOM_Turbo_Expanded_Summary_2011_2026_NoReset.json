@@ -1,0 +1,17 @@
+{
+  "window": {
+    "start": "2011-01-01",
+    "end": "2026-01-12",
+    "valuation": "2026-01-12"
+  },
+  "finalEquityNIS": 517850.1,
+  "commissionsNIS": 6300,
+  "cagr": 0.2987077080887115,
+  "sharpe": 0.8851545601702911,
+  "maxDrawdown": -0.599127394498518,
+  "alphaAnn": 0.1367218494732289,
+  "beta": 0.7564938767153079,
+  "benchmark": "^TA125.TA",
+  "resolvedAssets": 37,
+  "failedAssets": 5
+}

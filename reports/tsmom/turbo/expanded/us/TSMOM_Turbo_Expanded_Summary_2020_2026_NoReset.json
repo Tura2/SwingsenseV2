@@ -1,0 +1,17 @@
+{
+  "window": {
+    "start": "2020-01-01",
+    "end": "2026-01-12",
+    "valuation": "2026-01-12"
+  },
+  "finalEquityNIS": 70287.11,
+  "commissionsNIS": 1581,
+  "cagr": 0.4606891639170294,
+  "sharpe": 1.0797042942112987,
+  "maxDrawdown": -0.3066914590228188,
+  "alphaAnn": 0.16333056741902813,
+  "beta": 0.9671684430416408,
+  "benchmark": "SPY",
+  "resolvedAssets": 60,
+  "failedAssets": 0
+}

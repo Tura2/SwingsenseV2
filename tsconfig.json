@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "types": ["node", "vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["backend/src/shared/*"]
+    }
+  },
+  "include": ["frontend", "backend", "vite.config.ts"],
+  "exclude": [
+    // Preload is compiled under electron/tsconfig; excluding TS version avoids duplicate Window.api declarations
+    "backend/electron/preload.ts",
+    // Exclude shared IPC domain contracts not yet implemented in this project
+    "backend/src/shared/ipc/**"
+  ]
+}

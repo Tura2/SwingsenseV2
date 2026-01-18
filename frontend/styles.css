@@ -1,0 +1,147 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --muted: #9aa4b2;
+  --text: #e6e9ef;
+  --accent: #5cc8ff;
+  --accent2: #9bff9f;
+  --danger: #ff6b6b;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+}
+.app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+nav {
+  background: var(--panel); padding: 16px; border-right: 1px solid #222833;
+}
+nav h1 { font-size: 18px; margin: 0 0 16px; color: var(--accent); }
+nav a { display: block; color: var(--text); text-decoration: none; padding: 8px 10px; border-radius: 8px; margin: 4px 0; }
+nav a.active, nav a:hover { background: #1f2430; }
+
+.content { padding: 16px; overflow: auto; }
+
+/* Simple vertical stacking with consistent gaps */
+.stack { display: flex; flex-direction: column; gap: 12px; }
+
+/* Slightly roomier content padding on large screens */
+@media (min-width: 900px) {
+  .content { padding: 20px; }
+}
+
+.cardgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.card {
+  background: var(--panel); border: 1px solid #222833; border-radius: 12px; padding: 14px;
+}
+.card h3 { margin: 0 0 8px; font-size: 16px; }
+.row { display: flex; gap: 8px; align-items: center; }
+input, select, button {
+  background: #131720; color: var(--text); border: 1px solid #262b36; border-radius: 8px;
+  padding: 8px 10px; font-size: 14px;
+}
+button.primary { background: #1d7bd7; border-color: #1d7bd7; }
+button.ghost { background: transparent; }
+.table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.table th, .table td { padding: 8px; border-bottom: 1px solid #222833; text-align: left; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+.badge.buy { background: #11351a; color: #9bff9f; }
+.badge.sell { background: #3b1111; color: #ff9b9b; }
+
+.chart-wrap { background: var(--panel); border: 1px solid #222833; border-radius: 12px; padding: 8px; }
+
+/* Utilities for Watchlists header and clickable rows */
+.row.between { display:flex; align-items:center; justify-content: space-between; gap: 8px; }
+.table tr.clickable { cursor: pointer; }
+.table tr.clickable:hover { background: #1a2230; }
+.table.watchlist-table tr.clickable:active { background:#15202b; }
+.table.watchlist-table td.symcell { font-weight:600; }
+.symwrap { gap:8px !important; }
+.symtext { letter-spacing:.5px; }
+.ticker-logo { transition:transform .25s, box-shadow .25s; }
+.table tr.clickable:hover .ticker-logo { transform:scale(1.08); box-shadow:0 0 0 1px #2d3a49, 0 2px 4px -2px #000; }
+.table tr[draggable="true"] { cursor:grab; }
+.table tr[draggable="true"]:active { cursor:grabbing; }
+
+/* Ticker logo container */
+.ticker-logo img { border-radius: 50%; display: block; }
+
+/* --- Home Styles (refined after hero removal) --- */
+/* Removed hero & carousel feature cards for leaner layout */
+
+.sectionhead { display:flex; align-items:center; justify-content: space-between; gap:16px; margin-bottom:8px; }
+.hscroller { display:flex; gap:12px; overflow-x:auto; padding:4px 2px 8px; scroll-snap-type: x mandatory; scrollbar-width: thin; }
+.hscroller::-webkit-scrollbar { height:8px; }
+/* Removed old feature carousel classes (.hslide, .card--feature) */
+.carouselcontrols { display:flex; gap:8px; }
+.carouselcontrols button { width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:18px; }
+
+.trending { position:relative; }
+.tabs { display:flex; gap:8px; }
+.tab { background:#1a212c; border:1px solid #25313f; padding:6px 14px; border-radius:20px; font-size:13px; cursor:pointer; }
+.tab.active { background: #25507a; border-color:#2d78b5; }
+.trendcard { background:#1a212c; border:1px solid #25313f; border-radius:14px; padding:10px 12px; display:flex; flex-direction:column; gap:4px; min-width:120px; scroll-snap-align:start; cursor:pointer; text-align:left; position:relative; transition:background .25s,border-color .25s, transform .25s; }
+.trendcard:hover { background:#222d3a; border-color:#2d3a49; transform:translateY(-2px); }
+.trendcard:active { transform:translateY(0); }
+.trendcard.skeleton { pointer-events:none; animation:pulse 1.4s ease-in-out infinite; }
+.trend-skeleton-row { display:flex; gap:12px; }
+.skeleton-bar { width:100%; height:12px; background:linear-gradient(90deg,#1f2732 0%,#28313d 40%,#1f2732 80%); border-radius:4px; }
+.trendcard.skeleton .ticker { height:14px; background:none; }
+
+@keyframes pulse { 0%{opacity:.55} 50%{opacity:1} 100%{opacity:.55} }
+
+/* Card polish */
+.card { position:relative; overflow:hidden; }
+.card::before { content:""; position:absolute; inset:0; background:linear-gradient(120deg,rgba(92,200,255,0.07),rgba(155,255,159,0.05)); opacity:0; transition:opacity .3s; pointer-events:none; }
+.card:hover::before { opacity:1; }
+.card:hover { border-color:#2a3645; }
+.card.no-hover::before, .card.no-hover:hover::before { opacity:0 !important; }
+.card.no-hover:hover { border-color:#222833; }
+.card button.primary { font-weight:600; letter-spacing:.3px; }
+.card p { line-height:1.35; }
+
+/* Tabs subtle animation */
+.tab { position:relative; overflow:hidden; }
+.tab.active { box-shadow:0 0 0 1px #2d78b5 inset, 0 0 8px -2px #2d78b5; }
+.tab:not(.active):hover { border-color:#304355; }
+
+/* Scrollbar modern styling */
+.hscroller::-webkit-scrollbar-track { background:transparent; }
+.hscroller::-webkit-scrollbar-thumb { background:#25313f; border-radius:20px; }
+.hscroller::-webkit-scrollbar-thumb:hover { background:#2f4051; }
+.ticker { font-weight:600; letter-spacing:0.5px; }
+.price { font-size:13px; opacity:0.85; }
+.pct { font-size:12px; font-weight:600; }
+.pct.up { color:#4ade80; }
+.pct.down { color:#f87171; }
+.vol { font-size:11px; opacity:0.6; }
+
+@media (max-width: 720px) {
+  /* legacy .hslide removed */
+  .sectionhead h2 { font-size:20px; }
+}
+
+/* --- Backtest page styles --- */
+.bt-controls { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+.bt-badge { background:#1a2230; color:#9ac7ff; border:1px solid #2a3a50; padding:2px 8px; border-radius:6px; font-size:12px; }
+.bt-badge.warn { color:#ffd7a6; border-color:#5a4630; background:#2a2116; }
+
+.bt-year-stats { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+.bt-year-stat { display:flex; gap:24px; align-items:center; padding:6px 8px; background:#121821; border:1px solid #1f2a38; border-radius:8px; }
+.bt-year-stat .year { width:80px; font-weight:700; color:#9ac7ff; }
+
+.bt-table-wrap { border:1px solid #222833; border-radius:12px; overflow:auto; background:var(--panel); }
+.bt-table { width:100%; border-collapse:separate; border-spacing:0; }
+.bt-table thead th { position:sticky; top:0; background:#171d28; color:#c9d6e5; text-align:left; font-weight:600; border-bottom:1px solid #222833; padding:10px 10px; }
+.bt-table td { padding:8px 10px; border-bottom:1px solid #1b2230; }
+.bt-table tr:hover td { background:#141a24; }
+.bt-table .year-row td { background:#0f1722; color:#99b8ff; font-weight:700; border-bottom-color:#22314a; }
+.bt-table .num { text-align:right; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.bt-table .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.bt-table .pos { color:#4ade80; }
+.bt-table .neg { color:#f87171; }
+.bt-table .clickable { cursor:pointer; }
+.bt-table .clickable:hover td { background:#162032; }
+.bt-table .selected td { background:#0f1f16 !important; }

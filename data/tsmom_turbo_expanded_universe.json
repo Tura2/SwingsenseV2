@@ -1,0 +1,126 @@
+{
+  "window": {
+    "start": "2020-01-01",
+    "end": "2026-01-12"
+  },
+  "portfolio": {
+    "initialCapitalNIS": 50000,
+    "commissionNIS": 5,
+    "rebalance": "monthly_first_trading_day",
+    "topK": 5
+  },
+"turbo": {
+    "lookbackTradingDays": 63,
+    "skipRecentTradingDays": 10, 
+    "targetVolAnn": 0.9,
+    "volCenterDays": 20, 
+    "maxLeverage": 1,
+    "minSigmaAnn": 0.01,
+    "longOnly": true,
+    "cashOnlyNormalization": true
+  },
+  "benchmark": {
+    "name": "TA-125",
+    "yahooSymbol": "^TA125.TA"
+  },
+  "assets": [
+    {
+      "group": "Global Anchors (ETFs)",
+      "items": [
+        { "label": "KSM S&P 500", "input": "KSM_SNP500_TASE", "yahoo": "KSM-F80.TA" },
+        { "label": "IBI Nasdaq 100", "input": "IBI_NASDAQ100_TASE", "yahoo": "KSM-F104.TA" },
+        { "label": "MSCI World", "input": "MSCI_WORLD_TASE", "yahoo": "KSM-F71.TA" }
+      ]
+    },
+    {
+      "group": "Commodities & Safe Havens",
+      "items": [
+        { "label": "Gold ETF", "input": "GOLD_ETF_TASE", "yahoo": "KSM-F43.TA" },
+        { "label": "Oil ETF", "input": "OIL_ETF_TASE", "yahoo": "KSM-F44.TA" },
+        { "label": "Silver", "input": "SILVER_ETF_TASE", "yahoo": "KSM-F42.TA" }
+      ]
+    },
+    {
+      "group": "Israeli Tech",
+      "items": [
+        { "label": "NVMI", "input": "NVMI.TA" },
+        { "label": "CAMT", "input": "CAMT.TA" },
+        { "label": "TSEM", "input": "TSEM.TA" },
+        { "label": "NICE", "input": "NICE.TA" },
+        { "label": "SAEP", "input": "SAEP.TA", "yahoo": "SPNS.TA" },
+        { "label": "GILT", "input": "GILT.TA" }
+      ]
+    },
+    {
+      "group": "Israeli Financials",
+      "items": [
+        { "label": "LUMI", "input": "LUMI.TA" },
+        { "label": "POLI", "input": "POLI.TA" },
+        { "label": "DSCT", "input": "DSCT.TA" },
+        { "label": "MZTF", "input": "MZTF.TA" },
+        { "label": "FIBI", "input": "FIBI.TA" },
+        { "label": "PHOE", "input": "PHOE.TA" },
+        { "label": "HARL", "input": "HARL.TA" }
+      ]
+    },
+    {
+      "group": "Israeli Energy",
+      "items": [
+        { "label": "DLEKG", "input": "DLEKG.TA" },
+        { "label": "NWDM", "input": "NWMD.TA" },
+        { "label": "ENOG", "input": "ENOG.TA" },
+        { "label": "RATIO", "input": "RATI.TA" },
+        { "label": "BAZN", "input": "ORL.TA" }
+      ]
+    },
+    {
+      "group": "Israeli Industry & Defense",
+      "items": [
+        { "label": "ESLT", "input": "ESLT.TA" },
+        { "label": "ICL", "input": "ICL.TA" },
+        { "label": "ORMT", "input": "ORA.TA" }
+      ]
+    },
+    {
+      "group": "Israeli Real Estate",
+      "items": [
+        { "label": "AZRG", "input": "AZRG.TA" },
+        { "label": "MLSR", "input": "MLSR.TA" },
+        { "label": "AMOT", "input": "AMOT.TA" },
+        { "label": "ALHE", "input": "ALHE.TA" },
+        { "label": "SKBN", "input": "SKBN.TA" },
+        { "label": "GBYM", "input": "GVYM.TA" }
+      ]
+    },
+    {
+      "group": "Israeli Consumer",
+      "items": [
+        { "label": "STRS", "input": "STRS.TA" },
+        { "label": "SAE", "input": "SAE.TA" },
+        { "label": "VCTR", "input": "VCTR.TA" },
+        { "label": "FOX", "input": "FOX.TA" }
+      ]
+    },
+    {
+      "group": "Sector Indices",
+      "items": [
+        { "label": "TA-35", "input": "TA35.TA" },
+        { "label": "TA-Banks", "input": "TA-BANKS.TA" },
+        { "label": "TA-RealEstate", "input": "ESTATE15.TA" },
+        { "label": "TA-Tech", "input": "TA-TECH.TA" },
+        { "label": "TASE (General)", "input": "TASE.TA" }
+      ]
+    }
+  ],
+  "priceOverrides": {
+    "note": "Optional. If you have manual price-entry discrepancies, add overrides here.",
+    "multiplierByYahooSymbol": {
+      "*.TA": 0.01
+    },
+    "replaceCloseByYahooSymbolAndDate": {
+      "EXAMPLE.TA": {
+        "2024-01-01": 123.45
+      }
+    }
+  }
+}

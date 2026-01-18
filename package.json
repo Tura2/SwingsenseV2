@@ -1,0 +1,79 @@
+{
+  "name": "swingsense-v2",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Clean Electron + Vite + React + TS trading desktop app",
+  "author": "you",
+  "main": "dist-electron/electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n VITE,MAIN,ELECTRON \"vite\" \"tsc -w -p backend/electron\" \"wait-on tcp:5173 && electronmon dist-electron/electron/main.js\"",
+    "build": "vite build && tsc -p backend/electron",
+    "build:electron": "tsc -p backend/electron",
+    "start": "cross-env ELECTRON_FORCE_DIST=true electron dist-electron/electron/main.js",
+    "start:windows": "cross-env ELECTRON_FORCE_DIST=true electron dist-electron/electron/main.js",
+    "start:dev": "cross-env ELECTRON_FORCE_DIST=false electron dist-electron/electron/main.js",
+    "start:prod": "npm run build && npm run start",
+    "dist": "electron-builder",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "typecheck": "tsc --noEmit",
+    "test:engine": "node --loader ts-node/esm ./tests/engine.test.mjs",
+    "test:backtest": "node ./tests/backtest.test.mjs",
+    "test": "npm run test:engine && npm run test:backtest"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "electron-log": "^5.2.0",
+    "fflate": "^0.8.2",
+    "lightweight-charts": "^4.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.9.3",
+    "zod": "^3.23.8",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.7.4",
+    "@types/react": "^18.3.7",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.0.1",
+    "cross-env": "^10.1.0",
+    "electron": "^32.1.2",
+    "electron-builder": "^25.1.8",
+    "electronmon": "^2.0.2",
+  "typescript": "^5.6.2",
+  "ts-node": "^10.9.2",
+    "vite": "^5.4.8",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.swingsense.v2",
+    "productName": "swingsenseV2",
+    "files": [
+      "dist/**",
+      "src/dist/**",
+      "dist-electron/**",
+      "node_modules/**",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**"
+    ],
+    "extraResources": [],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    }
+  }
+}

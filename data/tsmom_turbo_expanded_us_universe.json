@@ -1,0 +1,134 @@
+{
+  "window": {
+    "start": "2020-01-01",
+    "end": "2026-01-12"
+  },
+  "portfolio": {
+    "initialCapitalNIS": 15000,
+    "commissionNIS": 3,
+    "currency": "USD",
+    "rebalance": "monthly_first_trading_day",
+    "topK": 5
+  },
+  "turbo": {
+    "lookbackTradingDays": 63,
+    "skipRecentTradingDays": 21,
+    "targetVolAnn": 0.8,
+    "volCenterDays": 60,
+    "maxLeverage": 5,
+    "minSigmaAnn": 0.01,
+    "longOnly": true,
+    "cashOnlyNormalization": true
+  },
+  "benchmark": {
+    "name": "SPY",
+    "yahooSymbol": "SPY"
+  },
+  "assets": [
+    {
+      "group": "Core Indices",
+      "items": [
+        { "label": "SPY", "input": "SPY" },
+        { "label": "QQQ", "input": "QQQ" },
+        { "label": "IWM", "input": "IWM" },
+        { "label": "DIA", "input": "DIA" }
+      ]
+    },
+    {
+      "group": "Primary Sectors",
+      "items": [
+        { "label": "XLK", "input": "XLK" },
+        { "label": "XLF", "input": "XLF" },
+        { "label": "XLV", "input": "XLV" },
+        { "label": "XLE", "input": "XLE" },
+        { "label": "XLI", "input": "XLI" },
+        { "label": "XLB", "input": "XLB" },
+        { "label": "XLU", "input": "XLU" },
+        { "label": "XLP", "input": "XLP" },
+        { "label": "XLY", "input": "XLY" },
+        { "label": "XLRE", "input": "XLRE" },
+        { "label": "XLC", "input": "XLC" }
+      ]
+    },
+    {
+      "group": "High-Growth Themes",
+      "items": [
+        { "label": "SMH", "input": "SMH" },
+        { "label": "IGV", "input": "IGV" },
+        { "label": "HACK", "input": "HACK" },
+        { "label": "ARKK", "input": "ARKK" },
+        { "label": "IBB", "input": "IBB" }
+      ]
+    },
+    {
+      "group": "Magnificent 7",
+      "items": [
+        { "label": "AAPL", "input": "AAPL" },
+        { "label": "MSFT", "input": "MSFT" },
+        { "label": "NVDA", "input": "NVDA" },
+        { "label": "GOOGL", "input": "GOOGL" },
+        { "label": "AMZN", "input": "AMZN" },
+        { "label": "META", "input": "META" },
+        { "label": "TSLA", "input": "TSLA" }
+      ]
+    },
+    {
+      "group": "Tech & Software Giants",
+      "items": [
+        { "label": "AVGO", "input": "AVGO" },
+        { "label": "ORCL", "input": "ORCL" },
+        { "label": "CRM", "input": "CRM" },
+        { "label": "ADBE", "input": "ADBE" },
+        { "label": "AMD", "input": "AMD" },
+        { "label": "NFLX", "input": "NFLX" },
+        { "label": "PANW", "input": "PANW" },
+        { "label": "NOW", "input": "NOW" },
+        { "label": "CSCO", "input": "CSCO" },
+        { "label": "INTU", "input": "INTU" }
+      ]
+    },
+    {
+      "group": "Financial & Healthcare Leaders",
+      "items": [
+        { "label": "JPM", "input": "JPM" },
+        { "label": "V", "input": "V" },
+        { "label": "MA", "input": "MA" },
+        { "label": "BRK-B", "input": "BRK-B" },
+        { "label": "UNH", "input": "UNH" },
+        { "label": "LLY", "input": "LLY" },
+        { "label": "JNJ", "input": "JNJ" },
+        { "label": "ABBV", "input": "ABBV" }
+      ]
+    },
+    {
+      "group": "Industrial, Energy & Consumer",
+      "items": [
+        { "label": "XOM", "input": "XOM" },
+        { "label": "CVX", "input": "CVX" },
+        { "label": "CAT", "input": "CAT" },
+        { "label": "DE", "input": "DE" },
+        { "label": "HON", "input": "HON" },
+        { "label": "LMT", "input": "LMT" },
+        { "label": "PG", "input": "PG" },
+        { "label": "KO", "input": "KO" }
+      ]
+    },
+    {
+      "group": "Safe Havens & Macro",
+      "items": [
+        { "label": "GLD", "input": "GLD" },
+        { "label": "SLV", "input": "SLV" },
+        { "label": "USO", "input": "USO" },
+        { "label": "TLT", "input": "TLT" },
+        { "label": "IEF", "input": "IEF" },
+        { "label": "BIL", "input": "BIL" },
+        { "label": "UUP", "input": "UUP" }
+      ]
+    }
+  ],
+  "priceOverrides": {
+    "note": "Optional. Kept for compatibility with the expanded-universe runner.",
+    "multiplierByYahooSymbol": {},
+    "replaceCloseByYahooSymbolAndDate": {}
+  }
+}

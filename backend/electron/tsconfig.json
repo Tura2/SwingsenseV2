@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "../../dist-electron",
+    "rootDir": "..",
+    "strict": true,
+    "types": ["node"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "baseUrl": "..",
+    "paths": {
+      "@shared/*": ["src/shared/*"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.cts",
+    "../src/main/**/*.ts",
+    "../src/shared/**/*.ts"
+  ],
+  "exclude": [
+    "../../dist-electron",
+    "../src/shared/ipc/**",
+    "./preload.ts"
+  ]
+}

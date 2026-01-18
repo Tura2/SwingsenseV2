@@ -1,0 +1,71 @@
+{
+  "enabledStrategies": [
+    "swingRangeSupportBounce"
+  ],
+  "dedupeMode": "byStrategy",
+  "minHistoryBars": 120,
+  "volumeThresholdUSD": 5000000,
+  "indicatorParams": {
+    "emaPeriods": [20,50,100,200],
+    "bb": { "period": 20, "mult": 2 },
+    "rsiPeriod": 14,
+    "macd": { "fast": 12, "slow": 26, "signal": 9 },
+    "atrPeriod": 14,
+    "donchianPeriod": 20,
+    "bbWidthRankLookback": 120
+  },
+  "scoring": {
+    "weights": {
+      "volumeSpike": 8,
+      "rsiBullRange": 6,
+      "macdAboveZero": 5,
+      "macdHistUp": 4,
+      "bbWidthLow": 6,
+      "trendAlignment": 6,
+      "fibConfluence": 5,
+      "patternTightness": 6,
+      "newHigh": 4,
+      "newLow": 4,
+      "upperWickFail": 5,
+      "macdHookUp": 5,
+      "preBreakTightness": 5,
+      "new20High": 6,
+      "new20Low": 6,
+      "upperWickLong": 6
+    }
+  },
+  "strategies": {
+    "emaPullback": { "minScore": 0, "enabled": false },
+    "squeezeBreakout": { "minScore": 0, "enabled": false },
+    "rangeBreakoutVolume": { "minScore": 0, "enabled": false },
+    "emaPopFailShort": { "minScore": 0, "enabled": false },
+    "squeezeBreakdown": { "minScore": 0, "enabled": false },
+    "fibConfluencePullback": { "minScore": 10, "enabled": false },
+    "vcpContraction": { "minScore": 10, "enabled": false },
+    "ema200Reclaim": { "minScore": 10, "enabled": false },
+    "macdZeroLineUp": { "minScore": 8, "enabled": false },
+    "emaBounceBullStack": { "minScore": 10, "enabled": false },
+    "bbMeanRevertTrend": { "minScore": 9, "enabled": false },
+    "rsiPositiveReversal": { "minScore": 9, "enabled": false },
+    "patternFlagPennant": { "minScore": 11, "enabled": false },
+    "patternCupHandle": { "minScore": 11, "enabled": false },
+    "mtfAlignment": { "minScore": 9, "enabled": false },
+    "rangeBreakdownVolume": { "minScore": 8, "enabled": false },
+    "ema200RejectionShort": { "minScore": 9, "enabled": false },
+    "swingRangeSupportBounce": { "minScore": 0, "enabled": true }
+  },
+  "logging": { "verboseStrategyEval": false },
+  "engineParams": {
+    "rangeWidthMin": 0.015,
+    "rangeWidthMax": 0.30,
+    "supportTolerance": 0.01,
+    "rsiThreshold": 50,
+    "reversalBodyRatio": 0.3,
+    "atrStopMultiplier": 1.8,
+    "bbWidthExpansion": 1.15,
+    "trailType": "rangeCheckpoint",
+    "checkpointSteps": [0.10, 0.25, 0.50, 0.75, 1.00],
+    "checkpointStopOffsets": [0.00, 0.10, 0.25, 0.50, 0.75],
+    "moveStopToBEAtR": 0.5
+  }
+}

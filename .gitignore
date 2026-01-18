@@ -1,0 +1,43 @@
+# Node / npm
+node_modules/
+
+# Builds
+/dist/
+/dist-electron/
+
+# Vite / bundlers
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Env files
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# VS Code (keep workspace settings if you want; ignore per-user)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Electron / runtime artifacts
+*.sqlite
+*.sqlite3
+*.db
+
+# Tests / coverage
+coverage/
+
+# Misc
+*.tmp
+*.temp

@@ -1,0 +1,224 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev"
+		},
+		{
+			"label": "Rebuild Electron (tsc)",
+			"type": "shell",
+			"command": "npm run build:electron"
+		},
+		{
+			"label": "Rebuild Electron (tsc)",
+			"type": "shell",
+			"command": "npm run build:electron"
+		},
+		{
+			"label": "Rebuild Electron (tsc)",
+			"type": "shell",
+			"command": "npm run build:electron"
+		},
+		{
+			"label": "Rebuild Electron (tsc)",
+			"type": "shell",
+			"command": "npm run build:electron"
+		},
+		{
+			"label": "Rebuild Electron (tsc)",
+			"type": "shell",
+			"command": "npm run build:electron"
+		},
+		{
+			"label": "Rebuild Electron (tsc)",
+			"type": "shell",
+			"command": "npm run build:electron"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true
+		},
+		{
+			"label": "Typecheck build",
+			"type": "shell",
+			"command": "npm run build",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Rebuild Electron (tsc)",
+			"type": "shell",
+			"command": "npm run build:electron"
+		},
+		{
+			"label": "Rebuild Electron (tsc)",
+			"type": "shell",
+			"command": "npm run build:electron"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true
+		},
+		{
+			"label": "Dev: Vite + Electron",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true
+		},
+		{
+			"label": "Build TypeScript (one-off)",
+			"type": "shell",
+			"command": "npm run build",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Run GNRS Backtest Once",
+			"type": "shell",
+			"command": "node scripts/run_single_backtest.mjs GNRS BOTH 0"
+		},
+		{
+			"label": "TSMOM: Turbo Expanded 15Y NoReset (2011-2026)",
+			"type": "shell",
+			"command": "npm run build:electron; npx electron scripts/tsmom/cli/run_tsmom_turbo_expanded_universe_electron.mjs --start=2011-01-01 --end=2026-01-12 --noReset"
+		},
+		{
+			"label": "Build TypeScript",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		}
+	]
+}
