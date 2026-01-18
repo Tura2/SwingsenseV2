@@ -29,6 +29,16 @@ export async function initDB(dbPath: string) {
     value TEXT
   );
 
+  -- Generic persistent cache for computed results (e.g., signal matrices)
+  CREATE TABLE IF NOT EXISTS app_cache (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    deps TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_app_cache_updated_at ON app_cache(updated_at);
+
   -- Wealth / Portfolios
   CREATE TABLE IF NOT EXISTS portfolios (
     id INTEGER PRIMARY KEY,
@@ -43,6 +53,7 @@ export async function initDB(dbPath: string) {
     portfolio_id INTEGER PRIMARY KEY REFERENCES portfolios(id) ON DELETE CASCADE,
     cash_base REAL NOT NULL DEFAULT 0,
     positions_json TEXT NOT NULL DEFAULT '{}',
+    universe_mode TEXT NOT NULL DEFAULT 'default' CHECK (universe_mode IN ('default','custom')),
     updated_at INTEGER NOT NULL
   );
 
@@ -52,6 +63,21 @@ export async function initDB(dbPath: string) {
     created_at INTEGER NOT NULL,
     PRIMARY KEY (portfolio_id, ticker)
   );
+
+  -- Portfolio-scoped asset metadata (keeps custom universes separate from the global seeded assets table)
+  CREATE TABLE IF NOT EXISTS portfolio_assets (
+    portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+    ticker TEXT NOT NULL,
+    name TEXT,
+    category TEXT,
+    yahoo_symbol TEXT,
+    price_multiplier REAL NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    meta TEXT,
+    PRIMARY KEY (portfolio_id, ticker)
+  );
+  CREATE INDEX IF NOT EXISTS idx_portfolio_assets_pid ON portfolio_assets(portfolio_id);
 
   CREATE TABLE IF NOT EXISTS watchlists (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +107,6 @@ export async function initDB(dbPath: string) {
   );
 
   CREATE INDEX IF NOT EXISTS idx_portfolio_trades_ts ON portfolio_trades(ts);
-  CREATE INDEX IF NOT EXISTS idx_portfolio_trades_pid_ts ON portfolio_trades(portfolio_id, ts);
 
   -- TSMOM Command Center
   CREATE TABLE IF NOT EXISTS assets (
@@ -109,7 +134,6 @@ export async function initDB(dbPath: string) {
     meta TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_capital_ledger_ts ON capital_ledger(ts);
-  CREATE INDEX IF NOT EXISTS idx_capital_ledger_pid_ts ON capital_ledger(portfolio_id, ts);
 
   CREATE TABLE IF NOT EXISTS portfolio_nav_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,6 +188,14 @@ export async function initDB(dbPath: string) {
     PRIMARY KEY (symbol, timeframe, ts)
   );
 
+  -- When new candles are inserted/replaced, bump a version key for cache invalidation.
+  CREATE TRIGGER IF NOT EXISTS trg_candles_bump_version
+  AFTER INSERT ON candles
+  BEGIN
+    INSERT OR REPLACE INTO meta(key, value)
+    VALUES('candles_version_ms', CAST(strftime('%s','now') AS INTEGER) * 1000);
+  END;
+
   CREATE INDEX IF NOT EXISTS idx_candles_symbol_time ON candles(symbol, timeframe, ts);
 
   CREATE TABLE IF NOT EXISTS signals (
@@ -176,15 +208,44 @@ export async function initDB(dbPath: string) {
   `;
   db.exec(createSQL);
 
+  // --- Lightweight migrations: portfolio_states.universe_mode ---
+  try {
+    const cols = db.prepare("PRAGMA table_info(portfolio_states)").all() as { name: string }[];
+    const names = new Set(cols.map(c => c.name));
+    if (!names.has('universe_mode')) {
+      db.prepare("ALTER TABLE portfolio_states ADD COLUMN universe_mode TEXT NOT NULL DEFAULT 'default'").run();
+    }
+  } catch {
+    // ignore
+  }
+
   // seed a default portfolio if none
   try {
     const pCount = db.prepare("SELECT COUNT(*) as c FROM portfolios").get() as { c: number };
     if (Number(pCount?.c || 0) === 0) {
       const now = Date.now();
       db.prepare("INSERT INTO portfolios(id, name, base_currency, strategy_ref, created_at, meta) VALUES(?,?,?,?,?,?)")
-        .run(1, 'Default', 'ILS', 'TSMOM_TURBO_V2', now, null);
+        .run(1, 'offir', 'ILS', 'TSMOM_TURBO_V2', now, null);
       db.prepare("INSERT OR IGNORE INTO portfolio_states(portfolio_id, cash_base, positions_json, updated_at) VALUES(?,?,?,?)")
         .run(1, 0, JSON.stringify({}), now);
+    }
+  } catch {
+    // ignore
+  }
+
+  // If a user portfolio named 'offir' exists alongside a legacy 'Default' portfolio,
+  // remove the legacy one so the UI ends up with only the real portfolio.
+  try {
+    const rows = db.prepare('SELECT id, name FROM portfolios ORDER BY created_at ASC, id ASC').all() as Array<{ id: number; name: string }>;
+    const byLower = new Map(rows.map(r => [String(r.name || '').trim().toLowerCase(), Number(r.id)]));
+    const offirId = byLower.get('offir');
+    const defaultId = byLower.get('default');
+    if (offirId && defaultId && offirId !== defaultId) {
+      // Delete portfolio row (will cascade to portfolio_states/universe/nav_history).
+      db.prepare('DELETE FROM portfolios WHERE id=?').run(defaultId);
+      // These tables don't enforce foreign keys; clean up explicitly.
+      try { db.prepare('DELETE FROM portfolio_trades WHERE portfolio_id=?').run(defaultId); } catch {}
+      try { db.prepare('DELETE FROM capital_ledger WHERE portfolio_id=?').run(defaultId); } catch {}
     }
   } catch {
     // ignore
@@ -216,12 +277,36 @@ export async function initDB(dbPath: string) {
     if (!names.has('fx_rate')) add("ALTER TABLE capital_ledger ADD COLUMN fx_rate REAL");
   } catch {}
 
+  // Backfill legacy NULL portfolio_id rows to default portfolio (id=1)
+  // so portfolio-scoped queries and state-cache rebuilds don't miss older rows.
+  try {
+    db.prepare("UPDATE portfolio_trades SET portfolio_id=1 WHERE portfolio_id IS NULL").run();
+  } catch {}
+  try {
+    db.prepare("UPDATE capital_ledger SET portfolio_id=1 WHERE portfolio_id IS NULL").run();
+  } catch {}
+
+  // Create portfolio-scoped indexes after migrations (safe on legacy DBs).
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_portfolio_trades_pid_ts ON portfolio_trades(portfolio_id, ts)");
+  } catch {}
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_capital_ledger_pid_ts ON capital_ledger(portfolio_id, ts)");
+  } catch {}
+
   // Ensure portfolio_states row exists for every portfolio
   try {
     const now = Date.now();
     const portfolios = db.prepare('SELECT id FROM portfolios').all() as Array<{ id: number }>;
     const ins = db.prepare("INSERT OR IGNORE INTO portfolio_states(portfolio_id, cash_base, positions_json, updated_at) VALUES(?,?,?,?)");
     for (const p of portfolios) ins.run(Number(p.id), 0, JSON.stringify({}), now);
+  } catch {
+    // ignore
+  }
+
+  // Backfill universe_mode based on whether a portfolio has any custom universe rows.
+  try {
+    db.prepare("UPDATE portfolio_states SET universe_mode='custom' WHERE portfolio_id IN (SELECT DISTINCT portfolio_id FROM portfolio_universe)").run();
   } catch {
     // ignore
   }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, Fragment } from 'react';
 import { strToU8, zipSync } from 'fflate';
 import { useSearchParams } from 'react-router-dom';
 import Chart from "../components/Chart";
-import type { Candle } from "@shared/types";
+import type { Candle, Watchlist } from "@shared/types";
 
 type StrategyStats = { trades: number; wins: number; losses: number; successPct: number; avgR: number; medianR: number; expectancy: number; avgHoldDays: number };
 type Summary = { perStrategy: Record<string, StrategyStats> };
@@ -33,21 +33,8 @@ type TradeRow = {
   pnl_pct?: number | null;
 };
 
-declare global {
-  interface Window { api: { backtests: {
-    runTicker(ticker: string, opts?: { minRRGlobal?: number; minRROverrides?: Record<string, number>; side?: 'BOTH'|'LONG'|'SHORT' }): Promise<{ runId: number }>;
-    getLatestForTicker(ticker: string): Promise<{ runId: number; summary: Summary; trades: TradeRow[]; meta: any } | null>;
-  };
-    getCandlesByInterval(symbol: string, interval: '4h'|'1d'|'1wk'|'1mo'): Promise<{ candles: Candle[] }>;
-    getIndicators(symbol: string, interval: '4h'|'1d'|'1wk'|'1mo'): Promise<{ overlays: { ema20: number[]; ema50: number[]; ema200: number[] } }>;
-    getIndicatorBundle(symbol: string, interval: '4h'|'1d'|'1wk'|'1mo'): Promise<{ candles: Candle[]; bundle: any }>;
-    getEngineConfig(): Promise<any>;
-    listWatchlists(): Promise<{ id: number; name: string; created_at: number }[]>;
-    getWatchlistSymbols(watchlistId: number): Promise<string[]>;
-  } }
-}
-
 export default function BacktestPage() {
+  const api = (window as any).api as any;
   const [searchParams] = useSearchParams();
   const initial = (searchParams.get('symbol') || 'AAPL').toUpperCase();
   const [symbol, setSymbol] = useState(initial);
@@ -82,7 +69,7 @@ export default function BacktestPage() {
     setError(null);
     try {
   console.log('[Backtests] loadLatest start', { symbol });
-      const res = await window.api.backtests.getLatestForTicker(symbol);
+      const res = await api.backtests.getLatestForTicker(symbol);
       if (res && res.summary) {
         console.log('[Backtests] loadLatest received', { trades: res.trades?.length, perStrategy: Object.keys(res.summary?.perStrategy||{}).length });
         setSummary(res.summary as Summary);
@@ -110,7 +97,7 @@ export default function BacktestPage() {
         const n = Number(v);
         if (Number.isFinite(n) && n >= 0) cleaned[k] = Math.min(5, Math.max(0, Number((Math.round(n*10)/10).toFixed(1))));
       }
-  await window.api.backtests.runTicker(symbol, { minRRGlobal, minRROverrides: cleaned, side: sideFilter });
+  await api.backtests.runTicker(symbol, { minRRGlobal, minRROverrides: cleaned, side: sideFilter });
       await loadLatest();
     } catch (e:any) {
       setError(e?.message || String(e));
@@ -140,12 +127,12 @@ export default function BacktestPage() {
       const run = runId ?? 'latest';
       // Fetch bundle and config
       const [{ candles: allCandles, bundle }, engineCfg] = await Promise.all([
-        window.api.getIndicatorBundle(symbol, '1d'),
-        window.api.getEngineConfig()
+        api.getIndicatorBundle(symbol, '1d'),
+        api.getEngineConfig()
       ]);
   const bars = (allCandles || []).slice(-1260);
   // Bars file
-  const barsOut = bars.map(b => ({ ts: b.ts, iso: new Date(b.ts).toISOString(), o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, tf: '1d' }));
+  const barsOut = bars.map((b: Candle) => ({ ts: b.ts, iso: new Date(b.ts).toISOString(), o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, tf: '1d' }));
 
       // Indicators aligned to bars length
       const L = bars.length;
@@ -250,10 +237,10 @@ export default function BacktestPage() {
   async function batchExportBestSignals() {
     try {
       setError(null);
-      const wls = await window.api.listWatchlists();
-      const wl = wls.find(w => w.name.toUpperCase() === 'BEST SIGNALS');
+      const wls = await api.listWatchlists();
+      const wl = wls.find((w: Watchlist) => w.name.toUpperCase() === 'BEST SIGNALS');
       if (!wl) { setError('Watchlist "BEST SIGNALS" not found'); return; }
-      const symbols = await window.api.getWatchlistSymbols(wl.id);
+      const symbols = await api.getWatchlistSymbols(wl.id);
       if (!symbols?.length) { setError('"BEST SIGNALS" watchlist has no symbols'); return; }
       // Prepare cleaned overrides once
       const cleaned: Record<string, number> = {};
@@ -265,18 +252,18 @@ export default function BacktestPage() {
         const s = sym.trim().toUpperCase();
         try {
           // Run backtest with current controls
-          await window.api.backtests.runTicker(s, { minRRGlobal, minRROverrides: cleaned, side: sideFilter });
-          const res = await window.api.backtests.getLatestForTicker(s);
+          await api.backtests.runTicker(s, { minRRGlobal, minRROverrides: cleaned, side: sideFilter });
+          const res = await api.backtests.getLatestForTicker(s);
           if (!res) continue;
           const tradesLocal = res.trades as TradeRow[];
           const sumPct = tradesLocal.reduce((acc, t) => acc + (t.pnl_pct ?? 0), 0);
           // Build artifacts for this symbol
           const [{ candles: allCandles, bundle }, engineCfg] = await Promise.all([
-            window.api.getIndicatorBundle(s, '1d'),
-            window.api.getEngineConfig()
+            api.getIndicatorBundle(s, '1d'),
+            api.getEngineConfig()
           ]);
           const bars = (allCandles || []).slice(-1260);
-          const barsOut = bars.map(b => ({ ts: b.ts, iso: new Date(b.ts).toISOString(), o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, tf: '1d' }));
+          const barsOut = bars.map((b: Candle) => ({ ts: b.ts, iso: new Date(b.ts).toISOString(), o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, tf: '1d' }));
           const L = bars.length;
           const trunc = (arr?: number[]) => Array.isArray(arr) ? arr.slice(-L) : [];
           const indicatorsOut = {
@@ -351,12 +338,12 @@ export default function BacktestPage() {
     try {
       const s = sym.trim().toUpperCase();
       console.log('[Backtests] loadChartData start', { symbol: s });
-      const resp = await window.api.getCandlesByInterval(s, '1d');
+      const resp = await api.getCandlesByInterval(s, '1d');
       const { candles } = resp || {};
   const last1260 = Array.isArray(candles) ? candles.slice(-1260) : [];
   console.log('[Backtests] candles fetched', { total: candles?.length ?? 0, showing: last1260.length, first: last1260[0]?.ts, last: last1260[last1260.length-1]?.ts });
   setCandles(last1260);
-      const { overlays } = await window.api.getIndicators(s, '1d');
+      const { overlays } = await api.getIndicators(s, '1d');
       console.log('[Backtests] overlays fetched', { ema20: overlays?.ema20?.length, ema50: overlays?.ema50?.length, ema200: overlays?.ema200?.length });
       setOverlays(overlays);
     } catch (e) {

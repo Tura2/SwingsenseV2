@@ -20,7 +20,7 @@ export default function Home() {
     if (!force && fetchedRef.current.has(tab) && trendData[tab].length) return;
     setTrendLoading(true); setTrendError(undefined);
     try {
-      const apiAny = window.api as any; // typed augmentation shim
+      const apiAny = (window as any).api as any; // typed augmentation shim
       const dataRaw = await apiAny.market.getTrending({ list: tab, limit: 12 });
       const data: TrendingItem[] = Array.isArray(dataRaw) ? dataRaw.filter(r => r && r.symbol) : [];
       setTrendData(d => ({ ...d, [tab]: data }));

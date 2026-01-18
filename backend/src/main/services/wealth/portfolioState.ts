@@ -41,7 +41,16 @@ function serializePositions(map: Record<string, number>): string {
 }
 
 export function getDefaultPortfolioId(): number {
-  return 1;
+  const db = getDB();
+  try {
+    const row = db
+      .prepare('SELECT id FROM portfolios ORDER BY created_at ASC, id ASC LIMIT 1')
+      .get() as any;
+    const id = Number(row?.id);
+    return Number.isFinite(id) && id > 0 ? id : 1;
+  } catch {
+    return 1;
+  }
 }
 
 export function ensurePortfolioStateRow(portfolioId: number) {

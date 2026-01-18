@@ -35,7 +35,7 @@ export default function Watchlists() {
   async function refresh() {
     const l = await api!.listWatchlists();
     setLists(l);
-    if (selected === null && l.length) setSelected(l[1].id);
+    if (selected === null && l.length) setSelected(l[0].id);
   }
   useEffect(() => { refresh(); }, []);
 

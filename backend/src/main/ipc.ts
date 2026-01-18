@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import { getDB } from "./db.js";
 import { z } from "zod";
 import { getCandles, getCandlesByInterval } from "./services/market.js";
-import { getQuotes } from "./services/quotes.js";
+import { getQuoteSafe } from "./services/quotes.js";
 import { getLogo } from "./services/logos.js";
 import { computeOverlaysAndSnapshot } from "./services/indicators.js";
 import { buildIndicatorBundle } from "./services/indicatorService.js";
@@ -15,6 +15,7 @@ import { computeTsmomPerformanceSeries } from './services/tsmom/performance.js';
 import { runTsmomSandbox } from './services/tsmom/sandbox.js';
 import { applyLedgerToState, applyTradesToState, getDefaultPortfolioId, rebuildPortfolioStateFromHistory } from './services/wealth/portfolioState.js';
 import { computePortfolioSnapshot, getPortfolioBaseCurrency } from './services/wealth/portfolioSnapshot.js';
+import { resolveCanonicalYahooSymbol } from './services/symbols.js';
 // Backtest engine removed; stale imports deleted
 // --- Trending cache (60s TTL) ---
 interface TrendingItem { symbol: string; price: number; changePct: number; volume: number; }
@@ -22,8 +23,262 @@ interface CacheEntry { ts: number; data: TrendingItem[]; }
 const TRENDING_CACHE: Record<string, CacheEntry> = {};
 const TRENDING_TTL_MS = 60_000;
 
+// --- Background candle priming for newly added tickers ---
+// Used to keep the UI responsive for large batch adds while still populating cached candles.
+const PRIME_CANDLES_QUEUE = new Set<string>();
+let primeCandlesRunning = false;
+let primeCandlesTimer: NodeJS.Timeout | null = null;
+
+// --- Background portfolio metadata priming (category/yahoo symbol) ---
+const PRIME_PORTFOLIO_META_QUEUE = new Map<number, Set<string>>();
+let primePortfolioMetaRunning = false;
+let primePortfolioMetaTimer: NodeJS.Timeout | null = null;
+
+function inferPriceMultiplierForTicker(ticker: string): number {
+  const t = String(ticker || '').toUpperCase();
+  return t.endsWith('.TA') ? 0.01 : 1;
+}
+
+function inferCategoryFromExchange(exchange?: string, ticker?: string): string | null {
+  const ex = String(exchange || '').toUpperCase();
+  const t = String(ticker || '').toUpperCase();
+  if (t.endsWith('.TA') || ex.includes('TASE') || ex.includes('TEL AVIV')) return 'Israel / TASE';
+  if (ex.includes('NASDAQ')) return 'US / NASDAQ';
+  if (ex.includes('NYSE')) return 'US / NYSE';
+  if (ex) return ex;
+  return null;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>(resolve => setTimeout(resolve, ms));
+}
+
+function enqueuePrimeCandles(symbols: string[]) {
+  for (const s of symbols || []) {
+    const t = String(s || '').trim().toUpperCase();
+    if (!t) continue;
+    PRIME_CANDLES_QUEUE.add(t);
+  }
+  if (primeCandlesTimer) return;
+  primeCandlesTimer = setTimeout(() => {
+    primeCandlesTimer = null;
+    void drainPrimeCandlesQueue();
+  }, 50);
+}
+
+function enqueuePrimePortfolioMeta(portfolioId: number, symbols: string[]) {
+  const pid = Number(portfolioId);
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  const set = PRIME_PORTFOLIO_META_QUEUE.get(pid) || new Set<string>();
+  for (const s of symbols || []) {
+    const t = String(s || '').trim().toUpperCase();
+    if (!t) continue;
+    set.add(t);
+  }
+  PRIME_PORTFOLIO_META_QUEUE.set(pid, set);
+  if (primePortfolioMetaTimer) return;
+  primePortfolioMetaTimer = setTimeout(() => {
+    primePortfolioMetaTimer = null;
+    void drainPrimePortfolioMetaQueue();
+  }, 100);
+}
+
+async function drainPrimePortfolioMetaQueue() {
+  if (primePortfolioMetaRunning) return;
+  primePortfolioMetaRunning = true;
+  try {
+    const db = getDB();
+    const upd = db.prepare(
+      `UPDATE portfolio_assets
+       SET yahoo_symbol=COALESCE(yahoo_symbol, ?),
+           category=COALESCE(category, ?),
+           updated_at=?
+       WHERE portfolio_id=? AND ticker=?`
+    );
+
+    while (PRIME_PORTFOLIO_META_QUEUE.size) {
+      const nextPid = PRIME_PORTFOLIO_META_QUEUE.keys().next().value as number | undefined;
+      if (!nextPid) break;
+      const set = PRIME_PORTFOLIO_META_QUEUE.get(nextPid);
+      if (!set || set.size === 0) {
+        PRIME_PORTFOLIO_META_QUEUE.delete(nextPid);
+        continue;
+      }
+
+      const nextTicker = set.values().next().value as string | undefined;
+      if (!nextTicker) {
+        PRIME_PORTFOLIO_META_QUEUE.delete(nextPid);
+        continue;
+      }
+      set.delete(nextTicker);
+      if (set.size === 0) PRIME_PORTFOLIO_META_QUEUE.delete(nextPid);
+
+      try {
+        const resolved = await resolveCanonicalYahooSymbol(nextTicker).catch(() => ({ candidates: [nextTicker], exchange: undefined } as any));
+        const ysym = String(resolved?.candidates?.[0] || nextTicker).toUpperCase();
+        const cat = inferCategoryFromExchange(resolved?.exchange, nextTicker);
+        upd.run(ysym || null, cat, Date.now(), nextPid, nextTicker);
+        invalidatePortfolioTsmomCaches(nextPid);
+      } catch {
+        // ignore
+      }
+
+      await sleep(250);
+    }
+  } finally {
+    primePortfolioMetaRunning = false;
+  }
+}
+
+// --- L1 in-memory cache + persistent SQLite cache (app_cache) ---
+// Memory cache is a small speedup; SQLite cache provides persistence across restarts.
+const MEM_CACHE = new Map<string, { ts: number; data: any }>();
+const MEM_CACHE_TTL_MS = 30_000;
+
+function memGet(key: string) {
+  const hit = MEM_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > MEM_CACHE_TTL_MS) {
+    MEM_CACHE.delete(key);
+    return null;
+  }
+  return hit.data;
+}
+
+function memSet(key: string, data: any) {
+  MEM_CACHE.set(key, { ts: Date.now(), data });
+}
+
+function memDel(key: string) {
+  MEM_CACHE.delete(key);
+}
+
+function invalidatePortfolioTsmomCaches(portfolioId: number) {
+  const pid = Number(portfolioId);
+  if (!Number.isFinite(pid) || pid <= 0) return;
+
+  const kSignal = `tsmom:signal:p:${pid}`;
+  const kUniverse = `tsmom:universe:p:${pid}`;
+
+  memDel(kSignal);
+  memDel(kUniverse);
+
+  try {
+    const db = getDB();
+    db.prepare('DELETE FROM app_cache WHERE key=?').run(kSignal);
+    db.prepare('DELETE FROM app_cache WHERE key=?').run(kUniverse);
+  } catch {
+    // ignore
+  }
+}
+
+function memDelPrefix(prefix: string) {
+  for (const k of Array.from(MEM_CACHE.keys())) {
+    if (k.startsWith(prefix)) MEM_CACHE.delete(k);
+  }
+}
+
+async function drainPrimeCandlesQueue() {
+  if (primeCandlesRunning) return;
+  primeCandlesRunning = true;
+  try {
+    // Conservative throttle to avoid Yahoo rate limiting.
+    while (PRIME_CANDLES_QUEUE.size) {
+      const next = PRIME_CANDLES_QUEUE.values().next();
+      const ticker = next.value as string | undefined;
+      if (!ticker) break;
+      PRIME_CANDLES_QUEUE.delete(ticker);
+      try {
+        await getCandles(ticker, '6M');
+      } catch {
+        // ignore; the ticker may be invalid or temporarily unavailable
+      }
+      await sleep(350);
+    }
+  } finally {
+    primeCandlesRunning = false;
+  }
+}
+
 export function registerIpcHandlers() {
   const db = getDB();
+
+  // --- Persistent computed cache (SQLite: app_cache) ---
+  const cacheGetStmt = db.prepare('SELECT value, deps, updated_at FROM app_cache WHERE key=?');
+  const cacheSetStmt = db.prepare('INSERT OR REPLACE INTO app_cache(key, value, deps, created_at, updated_at) VALUES(?,?,?,?,?)');
+
+  function getCandlesVersionMs(): number {
+    try {
+      const row = db.prepare("SELECT value FROM meta WHERE key='candles_version_ms'").get() as { value?: any } | undefined;
+      const n = Number(row?.value ?? 0);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function ensureCandlesVersionInitialized() {
+    try {
+      const row = db.prepare("SELECT value FROM meta WHERE key='candles_version_ms'").get() as { value?: any } | undefined;
+      const n = Number(row?.value ?? 0);
+      if (Number.isFinite(n) && n > 0) return;
+      const cnt = db.prepare('SELECT COUNT(*) as c FROM candles').get() as { c: number };
+      const v = (Number(cnt?.c || 0) > 0) ? Date.now() : 0;
+      db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('candles_version_ms', ?)").run(String(v));
+    } catch {
+      // ignore
+    }
+  }
+
+  function persistentCacheGet<T>(key: string, deps?: { candlesVersionMs?: number }): T | null {
+    const mem = memGet(key);
+    if (mem) return mem as T;
+
+    try {
+      const row = cacheGetStmt.get(key) as { value?: string; deps?: string; updated_at?: any } | undefined;
+      if (!row?.value) return null;
+      if (deps?.candlesVersionMs != null) {
+        const storedDeps = row.deps ? JSON.parse(row.deps) : {};
+        const storedV = Number(storedDeps?.candlesVersionMs ?? 0);
+        if (storedV !== Number(deps.candlesVersionMs)) return null;
+      }
+      const parsed = JSON.parse(row.value) as T;
+      memSet(key, parsed);
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function persistentCacheGetFresh<T>(key: string, maxAgeMs: number): T | null {
+    const mem = memGet(key);
+    if (mem) return mem as T;
+
+    try {
+      const row = cacheGetStmt.get(key) as { value?: string; deps?: string; updated_at?: any } | undefined;
+      if (!row?.value) return null;
+      const updatedAt = Number(row.updated_at ?? 0);
+      if (!Number.isFinite(updatedAt) || updatedAt <= 0) return null;
+      if (Date.now() - updatedAt > maxAgeMs) return null;
+      const parsed = JSON.parse(row.value) as T;
+      memSet(key, parsed);
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function persistentCacheSet(key: string, value: any, deps?: any) {
+    try {
+      const now = Date.now();
+      cacheSetStmt.run(key, JSON.stringify(value), deps ? JSON.stringify(deps) : null, now, now);
+      memSet(key, value);
+    } catch {
+      // ignore
+    }
+  }
+
+  ensureCandlesVersionInitialized();
 
   // --- Portfolios / Wealth (client-facing primitives) ---
   const Currency = z.enum(['USD', 'ILS']);
@@ -48,8 +303,10 @@ export function registerIpcHandlers() {
       .prepare('INSERT INTO portfolios(name, base_currency, strategy_ref, created_at, meta) VALUES(?,?,?,?,?)')
       .run(p.name, p.baseCurrency ?? 'ILS', p.strategyRef ?? null, now, p.meta ? JSON.stringify(p.meta) : null);
     const id = Number(info.lastInsertRowid);
-    db.prepare('INSERT OR IGNORE INTO portfolio_states(portfolio_id, cash_base, positions_json, updated_at) VALUES(?,?,?,?)')
-      .run(id, 0, JSON.stringify({}), now);
+    // New portfolios should start with an empty universe.
+    // Treat this as a custom universe (empty list) rather than falling back to the global default assets list.
+    db.prepare('INSERT OR IGNORE INTO portfolio_states(portfolio_id, cash_base, positions_json, universe_mode, updated_at) VALUES(?,?,?,?,?)')
+      .run(id, 0, JSON.stringify({}), 'custom', now);
     return { id, name: p.name, base_currency: p.baseCurrency ?? 'ILS', strategy_ref: p.strategyRef ?? null, created_at: now, meta: p.meta ? JSON.stringify(p.meta) : null };
   });
 
@@ -81,7 +338,8 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('portfolios:delete', async (_e, portfolioId: number) => {
     const id = PortfolioId.parse(portfolioId);
-    if (id === getDefaultPortfolioId()) throw new Error('Refusing to delete default portfolio');
+    const cnt = db.prepare('SELECT COUNT(*) as c FROM portfolios').get() as { c: number };
+    if (Number(cnt?.c || 0) <= 1) throw new Error('Cannot delete the last portfolio');
     db.prepare('DELETE FROM portfolios WHERE id=?').run(id);
     return { ok: true };
   });
@@ -101,27 +359,67 @@ export function registerIpcHandlers() {
     return rows.map(r => String(r.ticker).toUpperCase());
   });
 
+  ipcMain.handle('portfolios:universe:getMode', async (_e, params: any) => {
+    const P = z.object({ portfolioId: PortfolioId.optional() });
+    const p = P.parse(params || {});
+    const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
+    try {
+      const row = db.prepare("SELECT universe_mode as mode FROM portfolio_states WHERE portfolio_id=?").get(pid) as { mode?: string } | undefined;
+      const mode = String(row?.mode || 'default').toLowerCase();
+      return mode === 'custom' ? 'custom' : 'default';
+    } catch {
+      return 'default';
+    }
+  });
+
   ipcMain.handle('portfolios:universe:addTicker', async (_e, params: any) => {
     const P = z.object({
       portfolioId: PortfolioId.optional(),
       ticker: z.string().trim().toUpperCase().min(1).max(40),
+      skipPreflight: z.boolean().optional(),
     });
     const p = P.parse(params || {});
     const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
     const ticker = p.ticker;
 
     // Pre-flight check: ensure we can fetch candles for the ticker.
-    try {
-      const candles = await getCandles(ticker, '6M');
-      if (!candles || candles.length < 5) {
-        throw new Error('No candles available');
+    if (!p.skipPreflight) {
+      try {
+        const candles = await getCandles(ticker, '6M');
+        if (!candles || candles.length < 5) {
+          throw new Error('No candles available');
+        }
+      } catch {
+        throw new Error(`Error: Could not fetch data for ${ticker}. Please verify the symbol.`);
       }
-    } catch {
-      throw new Error(`Error: Could not fetch data for ${ticker}. Please verify the symbol.`);
     }
 
     db.prepare('INSERT OR IGNORE INTO portfolio_universe(portfolio_id, ticker, created_at) VALUES(?,?,?)')
       .run(pid, ticker, Date.now());
+
+    // Upsert portfolio-scoped metadata (kept separate from global seeded assets)
+    try {
+      const now = Date.now();
+      db.prepare(
+        `INSERT OR IGNORE INTO portfolio_assets(portfolio_id, ticker, name, category, yahoo_symbol, price_multiplier, created_at, updated_at, meta)
+         VALUES(?,?,?,?,?,?,?,?,?)`
+      ).run(pid, ticker, null, null, null, inferPriceMultiplierForTicker(ticker), now, now, null);
+      db.prepare('UPDATE portfolio_assets SET updated_at=? WHERE portfolio_id=? AND ticker=?').run(now, pid, ticker);
+    } catch {
+      // ignore
+    }
+
+    // If we skipped preflight, prime candles + metadata in the background.
+    if (p.skipPreflight) {
+      enqueuePrimeCandles([ticker]);
+      enqueuePrimePortfolioMeta(pid, [ticker]);
+    } else {
+      enqueuePrimePortfolioMeta(pid, [ticker]);
+    }
+
+    invalidatePortfolioTsmomCaches(pid);
+
+    try { db.prepare("UPDATE portfolio_states SET universe_mode='custom' WHERE portfolio_id=?").run(pid); } catch {}
     return { ok: true };
   });
 
@@ -133,6 +431,65 @@ export function registerIpcHandlers() {
     const p = P.parse(params || {});
     const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
     db.prepare('DELETE FROM portfolio_universe WHERE portfolio_id=? AND ticker=?').run(pid, p.ticker);
+    invalidatePortfolioTsmomCaches(pid);
+    try { db.prepare("UPDATE portfolio_states SET universe_mode='custom' WHERE portfolio_id=?").run(pid); } catch {}
+    return { ok: true };
+  });
+
+  ipcMain.handle('portfolios:universe:setAll', async (_e, params: any) => {
+    const P = z.object({
+      portfolioId: PortfolioId.optional(),
+      tickers: z.array(z.string().trim().toUpperCase().min(1).max(40)).max(2000),
+      skipPreflight: z.boolean().optional(),
+    });
+    const p = P.parse(params || {});
+    const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
+    const now = Date.now();
+
+    const tickers = Array.from(new Set((p.tickers || []).map(t => String(t).trim().toUpperCase()).filter(Boolean)));
+
+    if (!p.skipPreflight) {
+      for (const ticker of tickers) {
+        try {
+          const candles = await getCandles(ticker, '6M');
+          if (!candles || candles.length < 5) throw new Error('No candles available');
+        } catch {
+          throw new Error(`Error: Could not fetch data for ${ticker}. Please verify the symbol.`);
+        }
+      }
+    }
+
+    const trx = db.transaction(() => {
+      db.prepare('DELETE FROM portfolio_universe WHERE portfolio_id=?').run(pid);
+      const ins = db.prepare('INSERT OR IGNORE INTO portfolio_universe(portfolio_id, ticker, created_at) VALUES(?,?,?)');
+      for (const t of tickers) ins.run(pid, t, now);
+    });
+
+    trx();
+
+    // Upsert portfolio-scoped metadata rows.
+    try {
+      const ins = db.prepare(
+        `INSERT OR IGNORE INTO portfolio_assets(portfolio_id, ticker, name, category, yahoo_symbol, price_multiplier, created_at, updated_at, meta)
+         VALUES(?,?,?,?,?,?,?,?,?)`
+      );
+      const upd = db.prepare('UPDATE portfolio_assets SET updated_at=? WHERE portfolio_id=? AND ticker=?');
+      for (const t of tickers) {
+        ins.run(pid, t, null, null, null, inferPriceMultiplierForTicker(t), now, now, null);
+        upd.run(now, pid, t);
+      }
+    } catch {
+      // ignore
+    }
+
+    // Prime candles and metadata in the background (especially for fast add)
+    if (p.skipPreflight) enqueuePrimeCandles(tickers);
+    enqueuePrimePortfolioMeta(pid, tickers);
+
+    invalidatePortfolioTsmomCaches(pid);
+
+    if (p.skipPreflight) enqueuePrimeCandles(tickers);
+    try { db.prepare("UPDATE portfolio_states SET universe_mode='custom' WHERE portfolio_id=?").run(pid); } catch {}
     return { ok: true };
   });
 
@@ -292,10 +649,58 @@ export function registerIpcHandlers() {
   });
 
   // --- TSMOM Command Center ---
-  ipcMain.handle('tsmom:get-universe', async () => {
-    return db
+  ipcMain.handle('tsmom:get-universe', async (_e, params: any) => {
+    const P = z.object({ portfolioId: z.number().int().positive().optional() });
+    const p = P.parse(params || {});
+    const pid = p.portfolioId != null ? Number(p.portfolioId) : null;
+
+    // Portfolio-scoped universe (when requested)
+    if (pid) {
+      let mode: 'default' | 'custom' = 'default';
+      try {
+        const row = db.prepare('SELECT universe_mode as mode FROM portfolio_states WHERE portfolio_id=?').get(pid) as any;
+        const m = String(row?.mode || 'default').toLowerCase();
+        mode = m === 'custom' ? 'custom' : 'default';
+      } catch {
+        mode = 'default';
+      }
+
+      if (mode === 'custom') {
+        const cacheKey = `tsmom:universe:p:${pid}`;
+        const cached = persistentCacheGet<any[]>(cacheKey);
+        if (cached) return cached;
+
+        const rows = db.prepare(
+          `SELECT u.ticker as ticker,
+                  COALESCE(pa.name, a.name) as name,
+                  COALESCE(pa.category, a.category) as category,
+                  'active' as status,
+                  COALESCE(pa.yahoo_symbol, a.yahoo_symbol) as yahoo_symbol,
+                  COALESCE(pa.price_multiplier, a.price_multiplier, 1) as price_multiplier,
+                  COALESCE(pa.created_at, a.created_at, u.created_at) as created_at,
+                  COALESCE(pa.updated_at, a.updated_at, u.created_at) as updated_at,
+                  COALESCE(pa.meta, a.meta) as meta
+           FROM portfolio_universe u
+           LEFT JOIN portfolio_assets pa ON pa.portfolio_id=u.portfolio_id AND pa.ticker=u.ticker
+           LEFT JOIN assets a ON a.ticker=u.ticker
+           WHERE u.portfolio_id=?
+           ORDER BY category, ticker`
+        ).all(pid);
+
+        persistentCacheSet(cacheKey, rows);
+        return rows;
+      }
+    }
+
+    // Default: global seeded assets universe
+    const cacheKey = 'tsmom:universe:global';
+    const cached = persistentCacheGet<any[]>(cacheKey);
+    if (cached) return cached;
+    const rows = db
       .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets ORDER BY category, ticker")
       .all();
+    persistentCacheSet(cacheKey, rows);
+    return rows;
   });
 
   ipcMain.handle('tsmom:compute-plan', async (_e, params: any) => {
@@ -305,8 +710,20 @@ export function registerIpcHandlers() {
     return await computeTsmomTurboV2Plan({ portfolioId });
   });
 
-  ipcMain.handle('tsmom:get-signal-matrix', async () => {
-    return await computeTsmomSignalMatrix();
+  ipcMain.handle('tsmom:get-signal-matrix', async (_e, params: any) => {
+    const P = z.object({ portfolioId: z.number().int().positive().optional() });
+    const p = P.parse(params || {});
+    const pid = p.portfolioId != null ? Number(p.portfolioId) : null;
+    const cacheKey = pid ? `tsmom:signal:p:${pid}` : 'tsmom:signal:global';
+    const candlesVersionMsBefore = getCandlesVersionMs();
+    const cached = persistentCacheGet<any>(cacheKey, { candlesVersionMs: candlesVersionMsBefore });
+    if (cached) return cached;
+    const data = await computeTsmomSignalMatrix(pid ? { portfolioId: pid } : undefined);
+    // Important: computing the matrix may fetch/insert candles, which bumps candles_version_ms.
+    // Store deps AFTER compute so the cache is immediately usable.
+    const candlesVersionMsAfter = getCandlesVersionMs();
+    persistentCacheSet(cacheKey, data, { candlesVersionMs: candlesVersionMsAfter });
+    return data;
   });
 
   ipcMain.handle('tsmom:get-performance', async (_e, params: any) => {
@@ -720,7 +1137,23 @@ export function registerIpcHandlers() {
   // Quotes
   ipcMain.handle("quotes:get", async (_e, symbols: string[]) => {
     const arr = z.array(z.string().trim().toUpperCase().min(1).max(15)).parse(symbols);
-    return await getQuotes(arr);
+    // Persisted quotes cache (prevents refetching on screen switches)
+    const QUOTES_TTL_MS = 5 * 60 * 1000;
+    const out: any[] = [];
+    for (const sym of arr) {
+      const key = `quote:${sym}`;
+      const cached = persistentCacheGetFresh<any>(key, QUOTES_TTL_MS);
+      if (cached) {
+        out.push(cached);
+        continue;
+      }
+      const q = await getQuoteSafe(sym);
+      // Ensure we preserve the original requested symbol as the key
+      const normalized = q && typeof q === 'object' ? { ...q, symbol: sym } : q;
+      persistentCacheSet(key, normalized);
+      out.push(normalized);
+    }
+    return out;
   });
 
   // Logos

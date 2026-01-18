@@ -139,37 +139,59 @@ export async function computeTsmomTurboV2Plan(opts?: { portfolioId?: number }): 
 
   let assets: TsmomAssetRow[];
   if (uniSet.size > 0) {
-    // Map tickers to assets rows when available; otherwise create minimal placeholder rows.
-    const byTicker = new Map(
-      (db.prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets").all() as TsmomAssetRow[])
-        .map(a => [String(a.ticker).toUpperCase(), a])
-    );
+    // Prefer portfolio-scoped metadata when available; fall back to global assets; else minimal placeholder.
+    const tickers = Array.from(uniSet);
+    const placeholders = tickers.map(() => '?').join(',');
+
+    const globalRows = (tickers.length
+      ? (db.prepare(
+          `SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
+           FROM assets
+           WHERE ticker IN (${placeholders})`
+        ).all(...tickers) as TsmomAssetRow[])
+      : []) as TsmomAssetRow[];
+    const globalBy = new Map(globalRows.map(a => [String(a.ticker).toUpperCase(), a]));
+
+    const pRows = (tickers.length
+      ? (db.prepare(
+          `SELECT ticker, name, category, 'active' as status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
+           FROM portfolio_assets
+           WHERE portfolio_id=? AND ticker IN (${placeholders})`
+        ).all(portfolioId, ...tickers) as any[])
+      : []) as any[];
+    const pBy = new Map(pRows.map(a => [String(a.ticker).toUpperCase(), a as TsmomAssetRow]));
+
     const now = Date.now();
-    assets = Array.from(uniSet).map(t => byTicker.get(t) || ({
-      ticker: t,
-      name: null,
-      category: 'portfolio',
-      status: 'active',
-      yahoo_symbol: null,
-      price_multiplier: 1,
-      created_at: now,
-      updated_at: now,
-      meta: null,
-    } as TsmomAssetRow));
+    assets = tickers.map(t => {
+      const key = String(t).toUpperCase();
+      return (
+        pBy.get(key) ||
+        globalBy.get(key) ||
+        ({
+          ticker: key,
+          name: null,
+          category: null,
+          status: 'active',
+          yahoo_symbol: null,
+          price_multiplier: 1,
+          created_at: now,
+          updated_at: now,
+          meta: null,
+        } as TsmomAssetRow)
+      );
+    });
   } else {
     assets = db
       .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
       .all() as TsmomAssetRow[];
   }
 
-  const state = getPortfolioState(portfolioId);
-  const positions = state.positions;
-  const cashBase = Number(state.cashBase);
-
-  // Load close histories
+  // Load close histories (shared by raw + instruction derivation)
   const historyStmt = db.prepare('SELECT ts, close FROM candles WHERE symbol=? AND timeframe=\'1d\' ORDER BY ts ASC');
 
-  const scored: Array<RebalancePlanItem> = [];
+  // --- Phase A: RAW strategy output (depends only on candles + universe) ---
+  // IMPORTANT: This section must not depend on portfolio cash/positions.
+  const rawUniverse: Array<{ ticker: string; yahooSymbol: string | null; name: string | null; category: string | null; price: number | null; momentum: number | null; sigmaAnn: number | null; rawWeight: number; targetWeight: number }> = [];
 
   for (const a of assets) {
     const { ticker, yahooSymbol, priceMultiplier } = resolveTicker(a);
@@ -183,7 +205,7 @@ export async function computeTsmomTurboV2Plan(opts?: { portfolioId?: number }): 
     const momentum = computeMomentum(closes, params.lookbackTradingDays, params.skipRecentTradingDays);
     const sigmaAnn = computeSigmaAnn(closes.slice(-Math.max(260, params.lookbackTradingDays + params.skipRecentTradingDays + 50)), params.volCenterDaysCOM);
 
-    scored.push({
+    rawUniverse.push({
       ticker,
       yahooSymbol,
       name: a.name,
@@ -191,15 +213,12 @@ export async function computeTsmomTurboV2Plan(opts?: { portfolioId?: number }): 
       price,
       momentum,
       sigmaAnn,
+      rawWeight: 0,
       targetWeight: 0,
-      targetQty: 0,
-      currentQty: Number(positions[ticker.toUpperCase()] || 0),
-      deltaQty: 0,
-      action: 'HOLD',
     });
   }
 
-  const eligible = scored
+  const eligible = rawUniverse
     .filter(x => (x.momentum ?? -1) > 0)
     .sort((a, b) => (b.momentum ?? -1) - (a.momentum ?? -1))
     .slice(0, params.topK);
@@ -208,7 +227,7 @@ export async function computeTsmomTurboV2Plan(opts?: { portfolioId?: number }): 
     warnings.push(`Only ${eligible.length}/${params.topK} assets have positive momentum.`);
   }
 
-  // Compute raw weights = targetVol / sigma
+  // Compute raw weights = targetVol / sigma (raw, then scaled)
   const raws: Array<{ ticker: string; raw: number }> = [];
   for (const e of eligible) {
     const s = Number(e.sigmaAnn);
@@ -223,41 +242,97 @@ export async function computeTsmomTurboV2Plan(opts?: { portfolioId?: number }): 
   }
 
   const scale = sumRaw > params.maxLeverage ? (params.maxLeverage / sumRaw) : 1;
+  const rawMap = new Map(raws.map(r => [r.ticker, r.raw]));
+  const targetWMap = new Map(raws.map(r => [r.ticker, r.raw * scale]));
 
-  // Compute holdings value using last prices
+  for (const r of rawUniverse) {
+    r.rawWeight = rawMap.get(r.ticker) || 0;
+    r.targetWeight = targetWMap.get(r.ticker) || 0;
+  }
+
+  // --- Phase B: PORTFOLIO instructions (depends on cached state) ---
+  const state = getPortfolioState(portfolioId);
+  const positions = state.positions;
+  const cashBase = Number(state.cashBase);
+
+  // Ensure any held tickers not in universe still appear (so we can generate SELL-to-zero instructions)
+  const heldTickers = Object.keys(positions || {}).map(t => String(t).toUpperCase()).filter(t => t && Number(positions[t]) !== 0);
+  const knownSet = new Set(rawUniverse.map(r => String(r.ticker).toUpperCase()));
+  const now = Date.now();
+  for (const t of heldTickers) {
+    if (knownSet.has(t)) continue;
+    // Minimal placeholder row for held symbols outside the strategy universe.
+    rawUniverse.push({
+      ticker: t,
+      yahooSymbol: null,
+      name: null,
+      category: 'held',
+      price: null,
+      momentum: null,
+      sigmaAnn: null,
+      rawWeight: 0,
+      targetWeight: 0,
+    });
+    // Try to load a last price for mark-to-market and sell sizing.
+    try {
+      const dbRows = historyStmt.all(t) as any[];
+      const series = loadCloses(dbRows, 1);
+      const last = series.length ? series[series.length - 1] : null;
+      rawUniverse[rawUniverse.length - 1].price = last ? last.close : null;
+    } catch {
+      // ignore
+    }
+  }
+
+  // Compute holdings value using last prices and FX.
   let holdingsValueBase = 0;
-  for (const it of scored) {
-    const q = Number(it.currentQty || 0);
-    if (!Number.isFinite(q) || !Number.isFinite(it.price || NaN)) continue;
+  for (const it of rawUniverse) {
+    const q = Number(positions[String(it.ticker).toUpperCase()] || 0);
+    if (!Number.isFinite(q) || q === 0) continue;
+    const px = Number(it.price);
+    if (!Number.isFinite(px) || px <= 0) continue;
     const assetCcy = inferAssetCurrency(it.ticker);
     const { rate, warning } = fxRateToBase(db, baseCurrency, assetCcy);
     if (warning) warnings.push(warning);
-    holdingsValueBase += q * Number(it.price) * rate;
+    holdingsValueBase += q * px * rate;
   }
 
   const equityBase = cashBase + holdingsValueBase;
   if (equityBase <= 0) warnings.push('Equity is <= 0; add a DEPOSIT to start.');
 
-  // Apply targets
-  const rawMap = new Map(raws.map(r => [r.ticker, r.raw * scale]));
+  // Build executable items by applying target weights to portfolio state.
+  const scored: Array<RebalancePlanItem> = [];
+  for (const r of rawUniverse) {
+    const currentQty = Number(positions[String(r.ticker).toUpperCase()] || 0);
+    const px = Number(r.price);
 
-  for (const it of scored) {
-    const w = rawMap.get(it.ticker) || 0;
-    it.targetWeight = w;
-
-    const px = Number(it.price);
-    const assetCcy = inferAssetCurrency(it.ticker);
+    const assetCcy = inferAssetCurrency(r.ticker);
     const { rate } = fxRateToBase(db, baseCurrency, assetCcy);
     const pxBase = (Number.isFinite(px) && px > 0) ? px * rate : 0;
+
+    const w = Number(r.targetWeight || 0);
     const targetValueBase = equityBase * w;
-    const targetQty = (Number.isFinite(pxBase) && pxBase > 0) ? Math.floor(targetValueBase / pxBase) : 0;
+    const targetQty = (Number.isFinite(pxBase) && pxBase > 0)
+      ? Math.floor(targetValueBase / pxBase)
+      : 0;
 
-    it.targetQty = targetQty;
-    it.deltaQty = targetQty - it.currentQty;
+    const deltaQty = targetQty - currentQty;
+    const action = deltaQty > 0 ? 'BUY' : deltaQty < 0 ? 'SELL' : 'HOLD';
 
-    if (it.deltaQty > 0) it.action = 'BUY';
-    else if (it.deltaQty < 0) it.action = 'SELL';
-    else it.action = 'HOLD';
+    scored.push({
+      ticker: r.ticker,
+      yahooSymbol: r.yahooSymbol,
+      name: r.name,
+      category: r.category,
+      price: r.price,
+      momentum: r.momentum,
+      sigmaAnn: r.sigmaAnn,
+      targetWeight: w,
+      targetQty,
+      currentQty,
+      deltaQty,
+      action,
+    });
   }
 
   // Only return items with non-zero target weight or current holdings (to keep UI clean)
@@ -275,19 +350,21 @@ export async function computeTsmomTurboV2Plan(opts?: { portfolioId?: number }): 
     items,
     warnings,
     raw: {
-      items: scored.map(s => ({
-        ticker: s.ticker,
-        momentum: s.momentum,
-        sigmaAnn: s.sigmaAnn,
-        price: s.price,
-        rawWeight: raws.find(r => r.ticker === s.ticker)?.raw ?? 0,
-        targetWeight: s.targetWeight,
-      })),
+      items: rawUniverse
+        .filter(r => r.category !== 'held')
+        .map(r => ({
+          ticker: r.ticker,
+          momentum: r.momentum,
+          sigmaAnn: r.sigmaAnn,
+          price: r.price,
+          rawWeight: r.rawWeight,
+          targetWeight: r.targetWeight,
+        })),
     },
   };
 }
 
-export async function computeTsmomSignalMatrix(): Promise<SignalMatrix> {
+export async function computeTsmomSignalMatrix(opts?: { portfolioId?: number }): Promise<SignalMatrix> {
   const db = getDB();
 
   const params = {
@@ -297,9 +374,72 @@ export async function computeTsmomSignalMatrix(): Promise<SignalMatrix> {
     topK: 5,
   };
 
-  const assets = db
-    .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
-    .all() as TsmomAssetRow[];
+  const portfolioId = opts?.portfolioId != null ? Number(opts.portfolioId) : null;
+
+  let assets: TsmomAssetRow[];
+  if (portfolioId) {
+    // Use effective portfolio universe when custom (even if empty). Otherwise use global assets.
+    let mode: 'default' | 'custom' = 'default';
+    try {
+      const row = db.prepare('SELECT universe_mode as mode FROM portfolio_states WHERE portfolio_id=?').get(portfolioId) as any;
+      const m = String(row?.mode || 'default').toLowerCase();
+      mode = m === 'custom' ? 'custom' : 'default';
+    } catch {
+      mode = 'default';
+    }
+
+    const uniRows = db.prepare('SELECT ticker FROM portfolio_universe WHERE portfolio_id=? ORDER BY ticker ASC').all(portfolioId) as Array<{ ticker: string }>;
+    const tickers = uniRows.map(r => String(r.ticker).toUpperCase()).filter(Boolean);
+
+    if (mode === 'custom') {
+      if (!tickers.length) {
+        return { asOf: toISODate(Date.now()), params, rows: [] };
+      }
+
+      const placeholders = tickers.map(() => '?').join(',');
+      const globalRows = (db.prepare(
+        `SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
+         FROM assets
+         WHERE ticker IN (${placeholders})`
+      ).all(...tickers) as TsmomAssetRow[]);
+      const globalBy = new Map(globalRows.map(a => [String(a.ticker).toUpperCase(), a]));
+
+      const pRows = (db.prepare(
+        `SELECT ticker, name, category, 'active' as status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
+         FROM portfolio_assets
+         WHERE portfolio_id=? AND ticker IN (${placeholders})`
+      ).all(portfolioId, ...tickers) as any[]);
+      const pBy = new Map(pRows.map(a => [String(a.ticker).toUpperCase(), a as TsmomAssetRow]));
+
+      const now = Date.now();
+      assets = tickers.map(t => {
+        const key = String(t).toUpperCase();
+        return (
+          pBy.get(key) ||
+          globalBy.get(key) ||
+          ({
+            ticker: key,
+            name: null,
+            category: null,
+            status: 'active',
+            yahoo_symbol: null,
+            price_multiplier: 1,
+            created_at: now,
+            updated_at: now,
+            meta: null,
+          } as TsmomAssetRow)
+        );
+      });
+    } else {
+      assets = db
+        .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
+        .all() as TsmomAssetRow[];
+    }
+  } else {
+    assets = db
+      .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
+      .all() as TsmomAssetRow[];
+  }
 
   const historyStmt = db.prepare("SELECT ts, close FROM candles WHERE symbol=? AND timeframe='1d' ORDER BY ts ASC");
 

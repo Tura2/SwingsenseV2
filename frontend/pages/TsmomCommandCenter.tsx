@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import EquityChart from "../components/EquityChart";
+import type { Candle } from "@shared/types";
 
 type AssetRow = {
   ticker: string;
@@ -135,10 +136,12 @@ type PriceFlagRow = {
 
 export default function TsmomCommandCenter() {
   const api = (window as any).api as undefined | {
+    getCandles(symbol: string, range?: "1M" | "6M" | "1Y" | "5Y"): Promise<Candle[]>;
+
     tsmom: {
-      getUniverse(): Promise<AssetRow[]>;
+      getUniverse(opts?: { portfolioId?: number }): Promise<AssetRow[]>;
       computePlan(opts?: { portfolioId?: number }): Promise<RebalancePlan>;
-      getSignalMatrix(): Promise<SignalMatrix>;
+      getSignalMatrix(opts?: { portfolioId?: number }): Promise<SignalMatrix>;
       getPerformance(opts?: { portfolioId?: number; years?: number; benchmark?: string | null }): Promise<{ benchmark: string | null; points: PerformancePoint[] }>;
       sandboxRun(opts?: { years?: number; benchmark?: string | null; params?: any }): Promise<SandboxResult>;
       sandboxCompare(opts: { years?: number; benchmark?: string | null; runs: Array<{ label: string; params: any }> }): Promise<any>;
@@ -243,11 +246,12 @@ export default function TsmomCommandCenter() {
   const [fillPrices, setFillPrices] = useState<Record<string, number>>({});
   const [fillQtys, setFillQtys] = useState<Record<string, number>>({});
   const [fillCostBase, setFillCostBase] = useState<Record<string, number>>({});
+  const [fillFxRates, setFillFxRates] = useState<Record<string, number>>({});
 
   async function loadUniverse() {
     setLoadingUniverse(true);
     try {
-      setUniverse(await tsmom.getUniverse());
+      setUniverse(await tsmom.getUniverse({ portfolioId }));
     } finally {
       setLoadingUniverse(false);
     }
@@ -268,7 +272,7 @@ export default function TsmomCommandCenter() {
 
   async function loadUsdIls() {
     try {
-      const fx = await api.getCandles('USDILS=X', '6M');
+      const fx = await api!.getCandles('USDILS=X', '6M');
       const last = fx?.[fx.length - 1];
       const v = Number((last as any)?.close);
       setUsdIls(Number.isFinite(v) && v > 0 ? v : null);
@@ -296,6 +300,7 @@ export default function TsmomCommandCenter() {
       const next: Record<string, number> = {};
       const nextQty: Record<string, number> = {};
       const nextCost: Record<string, number> = {};
+      const nextFx: Record<string, number> = {};
       for (const it of p.items) {
         if (it.action === "HOLD") continue;
         if (typeof it.price === "number" && Number.isFinite(it.price) && it.price > 0) {
@@ -310,6 +315,7 @@ export default function TsmomCommandCenter() {
         if (base === 'ILS' && isUsdAsset) {
           const fx = Number(usdIls);
           if (Number.isFinite(fx) && fx > 0 && Number.isFinite(q) && Number.isFinite(Number(it.price))) {
+            nextFx[it.ticker] = fx;
             nextCost[it.ticker] = q * Number(it.price) * fx;
           }
         }
@@ -317,6 +323,7 @@ export default function TsmomCommandCenter() {
       setFillPrices(prev => ({ ...next, ...prev }));
       setFillQtys(prev => ({ ...nextQty, ...prev }));
       setFillCostBase(prev => ({ ...nextCost, ...prev }));
+      setFillFxRates(prev => ({ ...nextFx, ...prev }));
       setConfirmExecuted(false);
     } finally {
       setLoadingPlan(false);
@@ -355,7 +362,7 @@ export default function TsmomCommandCenter() {
   async function loadSignalMatrix() {
     setLoadingMatrix(true);
     try {
-      setSignalMatrix(await tsmom.getSignalMatrix());
+      setSignalMatrix(await tsmom.getSignalMatrix({ portfolioId }));
     } finally {
       setLoadingMatrix(false);
     }
@@ -483,10 +490,11 @@ export default function TsmomCommandCenter() {
         const qty = Number(fillQtys[it.ticker] ?? Math.abs(it.deltaQty));
         const price = Number(fillPrices[it.ticker] ?? it.price);
         const notionalBase = Number(fillCostBase[it.ticker]);
-        return { ticker: it.ticker, side, qty, price, notionalBase };
+        const fxRate = Number(fillFxRates[it.ticker]);
+        return { ticker: it.ticker, side, qty, price, notionalBase, fxRate };
       })
       .filter(t => Number.isFinite(t.qty) && t.qty > 0 && Number.isFinite(t.price) && t.price > 0);
-  }, [plan, fillPrices, fillQtys, fillCostBase]);
+  }, [plan, fillPrices, fillQtys, fillCostBase, fillFxRates]);
 
   async function executeTrades() {
     if (!plan) return;
@@ -499,9 +507,12 @@ export default function TsmomCommandCenter() {
 
     for (const t of tradeDraft) {
       const isUsdAsset = !String(t.ticker).toUpperCase().endsWith('.TA');
-      if (baseCurrency === 'ILS' && isUsdAsset) {
-        if (!Number.isFinite(Number(t.notionalBase)) || Number(t.notionalBase) <= 0) {
-          alert(`Missing Cost (ILS) for ${t.ticker}. Provide the executed cost in ILS so NAV stays correct.`);
+      const tradeCurrency = isUsdAsset ? 'USD' : 'ILS';
+      if (tradeCurrency !== baseCurrency) {
+        const hasBaseCost = Number.isFinite(Number(t.notionalBase)) && Number(t.notionalBase) > 0;
+        const hasFxRate = Number.isFinite(Number(t.fxRate)) && Number(t.fxRate) > 0;
+        if (!hasBaseCost && !hasFxRate) {
+          alert(`Missing FX data for ${t.ticker}. Provide either Cost (${baseCurrency}) or an FX rate so NAV stays correct.`);
           return;
         }
       }
@@ -539,6 +550,7 @@ export default function TsmomCommandCenter() {
           price: t.price,
           tradeCurrency,
           ...(Number.isFinite(Number(t.notionalBase)) && Number(t.notionalBase) > 0 ? { notionalBase: Number(t.notionalBase) } : {}),
+          ...(Number.isFinite(Number(t.fxRate)) && Number(t.fxRate) > 0 ? { fxRate: Number(t.fxRate) } : {}),
           meta: { source: "tsmom-ui", kind: 'execution' },
         };
       }),
@@ -1211,6 +1223,7 @@ export default function TsmomCommandCenter() {
                     <th className="num">Δ</th>
                     <th className="num">Exec Qty</th>
                     <th className="num">Exec Px</th>
+                    <th className="num">Exec FX</th>
                     <th className="num">Cost ({plan.baseCurrency || 'ILS'})</th>
                   </tr>
                 </thead>
@@ -1219,9 +1232,22 @@ export default function TsmomCommandCenter() {
                     const fillPx = fillPrices[it.ticker];
                     const fillQty = fillQtys[it.ticker];
                     const fillCost = fillCostBase[it.ticker];
+                    const fillFx = fillFxRates[it.ticker];
                     const actionClass = it.action === "BUY" ? "pos" : it.action === "SELL" ? "neg" : "";
                     const isUsdAsset = !String(it.ticker).toUpperCase().endsWith('.TA');
-                    const needsBaseCost = (plan.baseCurrency || 'ILS') === 'ILS' && isUsdAsset;
+                    const base = (plan.baseCurrency || 'ILS');
+                    const assetCcy = isUsdAsset ? 'USD' : 'ILS';
+                    const needsFx = base !== assetCcy;
+                    const needsBaseCost = base === 'ILS' && isUsdAsset;
+
+                    let fxPlaceholder = '';
+                    if (needsFx && usdIls && Number.isFinite(Number(usdIls)) && Number(usdIls) > 0) {
+                      fxPlaceholder = (assetCcy === 'USD' && base === 'ILS')
+                        ? String(Number(usdIls))
+                        : (assetCcy === 'ILS' && base === 'USD')
+                          ? String(1 / Number(usdIls))
+                          : '';
+                    }
                     return (
                       <tr key={it.ticker}>
                         <td className={actionClass}>{it.action}</td>
@@ -1270,6 +1296,26 @@ export default function TsmomCommandCenter() {
                         <td className="num">
                           {it.action === "HOLD" ? (
                             "—"
+                          ) : needsFx ? (
+                            <input
+                              type="number"
+                              step="any"
+                              value={fillFx ?? ""}
+                              placeholder={fxPlaceholder}
+                              onChange={e => {
+                                const v = Number(e.target.value);
+                                setFillFxRates(prev => ({ ...prev, [it.ticker]: v }));
+                              }}
+                              style={{ width: 110 }}
+                              title={`FX rate to convert ${assetCcy} -> ${base}. Optional if you provide Cost (${base}).`}
+                            />
+                          ) : (
+                            <span style={{ color: '#9aa4b2' }}>—</span>
+                          )}
+                        </td>
+                        <td className="num">
+                          {it.action === "HOLD" ? (
+                            "—"
                           ) : needsBaseCost ? (
                             <input
                               type="number"
@@ -1292,7 +1338,7 @@ export default function TsmomCommandCenter() {
                   })}
                   {!plan.items.length && (
                     <tr>
-                      <td colSpan={12}>No plan items (need candles + active assets).</td>
+                      <td colSpan={13}>No plan items (need candles + active assets).</td>
                     </tr>
                   )}
                 </tbody>

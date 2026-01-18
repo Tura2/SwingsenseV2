@@ -8,6 +8,7 @@ export default function Nav() {
       <NavLink to="/ticker">Ticker</NavLink>
       <NavLink to="/watchlists">Watchlists</NavLink>
       <NavLink to="/portfolio">Portfolio</NavLink>
+      <NavLink to="/wealth">Wealth</NavLink>
       <NavLink to="/signals">Signals</NavLink>
       <NavLink to="/backtest">Backtest</NavLink>
       <NavLink to="/tsmom">TSMOM</NavLink>

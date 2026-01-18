@@ -50,6 +50,116 @@ button.ghost { background: transparent; }
 .badge.buy { background: #11351a; color: #9bff9f; }
 .badge.sell { background: #3b1111; color: #ff9b9b; }
 
+button.danger { background: #2b1212; border-color: #5a1c1c; color: #ffb3b3; }
+button.danger:hover { border-color: #7a2a2a; }
+button.danger:disabled { opacity: .55; cursor: not-allowed; }
+
+.num { text-align:right; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.pos { color:#4ade80; }
+.neg { color:#f87171; }
+
+.pill {
+  display:inline-flex; align-items:center; gap:6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background:#1a212c;
+  border: 1px solid #25313f;
+  color: #c9d6e5;
+  font-size: 12px;
+}
+
+.tableWrap { border: 1px solid #222833; border-radius: 12px; overflow:auto; background: var(--panel); }
+
+.banner { border-radius: 12px; padding: 12px 12px; border: 1px solid #222833; background: #141821; }
+.banner.warn { border-color: #3a2b12; background: #1d1710; color: #ffd7a6; }
+.banner.error { border-color: #4a1b1b; background: #1f1212; color: #ffb3b3; white-space: pre-line; }
+
+.chiplist { display:flex; flex-wrap:wrap; gap:8px; }
+.chip {
+  display:inline-flex; align-items:center; gap:8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background:#121821;
+  border: 1px solid #1f2a38;
+  color: #cfe0ff;
+  font-size: 12px;
+}
+.chipx {
+  width: 22px; height: 22px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius: 999px;
+  border: 1px solid #25313f;
+  background: transparent;
+  color: #c9d6e5;
+  padding: 0;
+  line-height: 1;
+}
+.chipx:hover { border-color: #3a4b5f; background: #1a212c; }
+
+/* Wealth page */
+.wealth .wealth-header { display:flex; align-items:flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.wealth-title { margin: 0; font-size: 22px; letter-spacing: .2px; }
+.wealth-subtitle { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; color: var(--muted); }
+
+.wealth-card h3 { font-weight: 650; }
+
+.wealth-stats { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 640px) {
+  .wealth-stats { grid-template-columns: 1fr; }
+}
+
+.stat-card { padding: 14px; }
+.stat-label { color: var(--muted); font-size: 12px; letter-spacing: .3px; text-transform: uppercase; }
+.stat-value { font-size: 26px; font-weight: 800; margin-top: 6px; }
+.stat-ccy { font-size: 14px; font-weight: 650; color: #9ac7ff; }
+
+/* Collapsible card header */
+.collapsibleHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.collapsibleTitle { font-size: 16px; font-weight: 650; }
+.collapsibleSubtitle { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.collapsibleChevron { color: #9ac7ff; font-size: 18px; padding: 2px 8px; border-radius: 10px; border: 1px solid #25313f; background: #1a212c; }
+
+/* Modal */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 1000;
+}
+.modal {
+  width: min(720px, 100%);
+  background: #121621;
+  border: 1px solid #222833;
+  border-radius: 14px;
+  box-shadow: 0 12px 48px rgba(0,0,0,.55);
+}
+.modalHeader {
+  padding: 12px 12px;
+  border-bottom: 1px solid #222833;
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.modalTitle { font-weight: 750; font-size: 16px; }
+.modalBody { padding: 12px 12px; }
+
 .chart-wrap { background: var(--panel); border: 1px solid #222833; border-radius: 12px; padding: 8px; }
 
 /* Utilities for Watchlists header and clickable rows */

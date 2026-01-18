@@ -17,6 +17,7 @@
   "exclude": [
     // Preload is compiled under electron/tsconfig; excluding TS version avoids duplicate Window.api declarations
     "backend/electron/preload.ts",
+    "backend/electron/preload.cts",
     // Exclude shared IPC domain contracts not yet implemented in this project
     "backend/src/shared/ipc/**"
   ]
