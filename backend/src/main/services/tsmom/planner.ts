@@ -35,7 +35,9 @@ function loadCloses(dbRows: any[], multiplier: number): Array<{ ts: number; clos
     const ts = Number(r.ts);
     const close = Number(r.close);
     if (!Number.isFinite(ts) || !Number.isFinite(close)) continue;
-    out.push({ ts, close: close * mult });
+    const c = close * mult;
+    if (!Number.isFinite(c) || c <= 0) continue;
+    out.push({ ts, close: c });
   }
   out.sort((a, b) => a.ts - b.ts);
   return out;
@@ -48,7 +50,7 @@ function computeMomentum(closes: number[], lookback: number, skip: number): numb
   if (startIdx < 0 || endIdx <= 0) return null;
   const a = closes[startIdx];
   const b = closes[endIdx];
-  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) return null;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
   return (b / a) - 1;
 }
 
@@ -58,7 +60,7 @@ function computeSigmaAnn(closes: number[], com: number): number | null {
   for (let i = 1; i < closes.length; i++) {
     const a = closes[i - 1];
     const b = closes[i];
-    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) continue;
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) continue;
     rets.push((b / a) - 1);
   }
   if (rets.length < 3) return null;
@@ -442,6 +444,7 @@ export async function computeTsmomSignalMatrix(opts?: { portfolioId?: number }):
   }
 
   const historyStmt = db.prepare("SELECT ts, close FROM candles WHERE symbol=? AND timeframe='1d' ORDER BY ts ASC");
+  const requiredClosesForMomentum = params.lookbackTradingDays + params.skipRecentTradingDays + 2;
 
   const scored: SignalMatrixRow[] = [];
   for (const a of assets) {
@@ -465,6 +468,10 @@ export async function computeTsmomSignalMatrix(opts?: { portfolioId?: number }):
       sigmaAnn,
       rank: null,
       isTopK: false,
+
+      candles1dTotal: dbRows.length,
+      closes1dValid: series.length,
+      requiredClosesForMomentum,
     });
   }
 

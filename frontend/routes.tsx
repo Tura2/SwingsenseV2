@@ -8,6 +8,7 @@ import Signals from "./pages/Signals";
 import Backtest from "./pages/Backtest";
 import TsmomCommandCenter from "./pages/TsmomCommandCenter";
 import Wealth from "./pages/Wealth";
+import RecordBook from "./pages/RecordBook";
 
 const routes: RouteObject[] = [
   {
@@ -19,6 +20,7 @@ const routes: RouteObject[] = [
       { path: "watchlists", element: <Watchlists /> },
       { path: "portfolio", element: <Portfolio /> },
       { path: "wealth", element: <Wealth /> },
+      { path: "recordbook", element: <RecordBook /> },
       { path: "signals", element: <Signals /> },
       { path: "backtest", element: <Backtest /> },
       { path: "tsmom", element: <TsmomCommandCenter /> }

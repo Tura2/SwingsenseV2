@@ -44,7 +44,7 @@ Goal: Provide a professional, high-clarity dashboard for quick monthly decisions
 
 - [x] **The Portfolio Pulse (Top Bar)**: Live display of Total Equity, Monthly P&L (approx), and a "Risk Gauge" (gross target exposure).
 - [x] **The Signal Matrix (Ranking Table)**: Full list of assets ranked by momentum with Top 5 highlighted.
-- [x] **Performance Analytics**: Equity chart comparing normalized portfolio vs. a benchmark (prefers TA125.TA/TA35.TA/SPY).
+- [x] **Performance Analytics**: Equity chart comparing normalized portfolio vs. a benchmark (prefers ^TA125.TA/TA35.TA/SPY).
 
 
 

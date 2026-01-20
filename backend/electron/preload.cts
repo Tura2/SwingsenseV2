@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld("api", {
     addLedgerEntry: (payload: any) => ipcRenderer.invoke('tsmom:add-ledger-entry', payload),
     deleteLedgerEntry: (id: number) => ipcRenderer.invoke('tsmom:delete-ledger-entry', id),
     listTrades: (opts?: { portfolioId?: number; limit?: number; strategyTagPrefix?: string }) => ipcRenderer.invoke('tsmom:list-trades', opts || {}),
+    updateTradeNotes: (payload: { tradeId: number; notes: string | null }) => ipcRenderer.invoke('tsmom:update-trade-notes', payload),
     getSyncStatus: () => ipcRenderer.invoke('tsmom:get-sync-status'),
     listSyncRuns: (opts?: { limit?: number }) => ipcRenderer.invoke('tsmom:list-sync-runs', opts || {}),
     listPriceFlags: (opts?: { limit?: number; onlyUnacknowledged?: boolean; types?: string[]; ticker?: string }) => ipcRenderer.invoke('tsmom:list-price-flags', opts || {}),
@@ -147,6 +148,7 @@ declare global {
         addLedgerEntry(payload: any): Promise<{ id: number; ts: number }>;
         deleteLedgerEntry(id: number): Promise<{ ok: true }>;
         listTrades(opts?: { portfolioId?: number; limit?: number; strategyTagPrefix?: string }): Promise<any[]>;
+        updateTradeNotes(payload: { tradeId: number; notes: string | null }): Promise<{ ok: true }>;
 
         getSyncStatus(): Promise<{ lastRun: any | null; openFlags: number }>;
         listSyncRuns(opts?: { limit?: number }): Promise<any[]>;
@@ -170,7 +172,7 @@ declare global {
           pnlDailyPct: number | null;
           pnlOpenBase: number | null;
           pnlOpenPct: number | null;
-          positions: Array<{ ticker: string; qty: number; lastPrice: number | null; assetCurrency: 'USD'|'ILS'; fxRateToBase: number; valueBase: number }>;
+          positions: Array<{ ticker: string; qty: number; lastPrice: number | null; avgBuyPrice: number | null; costBasisBase: number | null; pnlOpenBase: number | null; assetCurrency: 'USD'|'ILS'; fxRateToBase: number; valueBase: number }>;
           warnings: string[];
         }>;
         universe: {

@@ -58,7 +58,7 @@ Purpose: compare normalized portfolio equity vs a benchmark.
 
 What it shows:
 - Normalized equity curve for your local portfolio journal
-- Normalized benchmark equity (tries TA125.TA / TA35.TA / SPY)
+- Normalized benchmark equity (tries ^TA125.TA / TA35.TA / SPY)
 
 Notes:
 - If you have no benchmark candles in the DB, the chart may be empty.

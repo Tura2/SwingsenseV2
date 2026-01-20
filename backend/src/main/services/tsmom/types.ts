@@ -75,6 +75,11 @@ export type SignalMatrixRow = {
   sigmaAnn: number | null;
   rank: number | null;
   isTopK: boolean;
+
+  // Diagnostics / UI helpers
+  candles1dTotal?: number;
+  closes1dValid?: number;
+  requiredClosesForMomentum?: number;
 };
 
 export type SignalMatrix = {

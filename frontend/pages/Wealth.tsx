@@ -21,7 +21,7 @@ type Snapshot = {
   pnlDailyPct: number | null;
   pnlOpenBase: number | null;
   pnlOpenPct: number | null;
-  positions: Array<{ ticker: string; qty: number; lastPrice: number | null; assetCurrency: Currency; fxRateToBase: number; valueBase: number }>;
+  positions: Array<{ ticker: string; qty: number; lastPrice: number | null; avgBuyPrice: number | null; costBasisBase: number | null; pnlOpenBase: number | null; assetCurrency: Currency; fxRateToBase: number; valueBase: number }>;
   warnings: string[];
 };
 
@@ -70,6 +70,11 @@ function normalizeTicker(raw: string) {
 }
 
 function formatMoney(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  return Number(v).toFixed(2);
+}
+
+function format2(v: number | null | undefined) {
   if (v == null || !Number.isFinite(Number(v))) return "—";
   return Number(v).toFixed(2);
 }
@@ -153,10 +158,9 @@ export default function Wealth() {
   const [universeIsCustom, setUniverseIsCustom] = useState(false);
   const [loadingUniverse, setLoadingUniverse] = useState(false);
   const [universeErr, setUniverseErr] = useState<string | null>(null);
-  const [universeCollapsed, setUniverseCollapsed] = useState<boolean>(() => {
-    const raw = localStorage.getItem("wealth.universeCollapsed");
-    return raw == null ? true : raw === "1";
-  });
+  // Always start collapsed when entering the Wealth page.
+  // (Do not persist; avoids stale UI state across navigations.)
+  const [universeCollapsed, setUniverseCollapsed] = useState<boolean>(true);
 
   const [universeAddOpen, setUniverseAddOpen] = useState(false);
   const [universeAddText, setUniverseAddText] = useState("");
@@ -193,7 +197,6 @@ export default function Wealth() {
   const [cashSaving, setCashSaving] = useState(false);
 
   const [confirmExecuted, setConfirmExecuted] = useState(false);
-  const [commissionBase, setCommissionBase] = useState(5);
   const [fillQtys, setFillQtys] = useState<Record<string, number>>({});
   const [fillPrices, setFillPrices] = useState<Record<string, number>>({});
   const [fillCostBase, setFillCostBase] = useState<Record<string, number>>({});
@@ -212,6 +215,66 @@ export default function Wealth() {
     if (list.length && !list.some(p => p.id === portfolioId)) {
       setPortfolioId(list[0].id);
     }
+  }
+
+  function tradeCurrencyForTicker(ticker: string): Currency {
+    const t = String(ticker || "").toUpperCase();
+    return t.endsWith(".TA") ? "ILS" : "USD";
+  }
+
+  function computeNotionalBase(opts: {
+    qty: number;
+    price: number;
+    baseCurrency: Currency;
+    tradeCurrency: Currency;
+    fxRate?: number;
+    notionalBase?: number;
+  }): number | null {
+    const qty = Number(opts.qty);
+    const price = Number(opts.price);
+    const provided = Number(opts.notionalBase);
+
+    if (Number.isFinite(provided) && provided > 0) return provided;
+    if (!Number.isFinite(qty) || qty <= 0) return null;
+    if (!Number.isFinite(price) || price <= 0) return null;
+
+    if (opts.tradeCurrency === opts.baseCurrency) {
+      return qty * price;
+    }
+
+    const fx = Number(opts.fxRate);
+    if (Number.isFinite(fx) && fx > 0) {
+      return qty * price * fx;
+    }
+
+    return null;
+  }
+
+  function resetExecutionDrafts() {
+    setPlan(null);
+    setConfirmExecuted(false);
+    setFillQtys({});
+    setFillPrices({});
+    setFillCostBase({});
+    setFillFxRates({});
+  }
+
+  async function refreshWealth(opts?: { portfolioId?: number; includeUniverseMeta?: boolean }) {
+    const pid = Number(opts?.portfolioId ?? portfolioId);
+    const includeMeta = Boolean(opts?.includeUniverseMeta);
+    // Clear derived UI state so we don't render stale values while reloading.
+    resetExecutionDrafts();
+    setQuotes({});
+    if (includeMeta) {
+      setAssets([]);
+      setSignalMatrixRows([]);
+    }
+    await Promise.all([
+      loadSnapshot(pid),
+      loadUniverse(pid),
+      loadAssetsOnly(pid),
+      includeMeta ? loadUniverseMeta() : Promise.resolve(),
+    ]);
   }
 
   async function loadSnapshot(pid = portfolioId) {
@@ -291,7 +354,8 @@ export default function Wealth() {
     setUniverseErr(null);
     if (!universeIsCustom) await ensureCustomUniverseForEditing();
     await portfoliosApi.universe.addTicker({ portfolioId: pid, ticker: t });
-    await loadUniverse(pid);
+    // Universe change affects effective universe, signal matrix, and plan.
+    await refreshWealth({ portfolioId: pid, includeUniverseMeta: !universeCollapsed });
     if (shouldAutoExpand) setUniverseCollapsed(false);
   }
 
@@ -300,7 +364,7 @@ export default function Wealth() {
     if (!t) return;
     setUniverseErr(null);
     await portfoliosApi.universe.removeTicker({ portfolioId: pid, ticker: t });
-    await loadUniverse(pid);
+    await refreshWealth({ portfolioId: pid, includeUniverseMeta: !universeCollapsed });
   }
 
   async function computePlan() {
@@ -387,16 +451,20 @@ export default function Wealth() {
 
     const base = (plan.baseCurrency || snapshot?.baseCurrency || "ILS") as Currency;
 
+    // Validate required FX/cost inputs for cross-currency trades.
     for (const t of instructions) {
-      const isUsdAsset = !String(t.ticker).toUpperCase().endsWith(".TA");
-      const tradeCurrency: Currency = isUsdAsset ? "USD" : "ILS";
-      if (tradeCurrency !== base) {
-        const hasBaseCost = Number.isFinite(Number(t.notionalBase)) && Number(t.notionalBase) > 0;
-        const hasFxRate = Number.isFinite(Number(t.fxRate)) && Number(t.fxRate) > 0;
-        if (!hasBaseCost && !hasFxRate) {
-          alert(`Missing FX data for ${t.ticker}. Provide either Cost (${base}) or an FX rate.`);
-          return;
-        }
+      const tradeCurrency = tradeCurrencyForTicker(t.ticker);
+      const computed = computeNotionalBase({
+        qty: t.qty,
+        price: t.price,
+        baseCurrency: base,
+        tradeCurrency,
+        fxRate: t.fxRate,
+        notionalBase: t.notionalBase,
+      });
+      if (tradeCurrency !== base && computed == null) {
+        alert(`Missing FX data for ${t.ticker}. Provide either Cost (${base}) or an FX rate.`);
+        return;
       }
     }
 
@@ -404,17 +472,23 @@ export default function Wealth() {
       portfolioId,
       ts: Date.now(),
       strategyTag: "TSMOM_TURBO_V2",
-      commissionBase: Number(commissionBase) || 5,
       trades: instructions.map(t => {
-        const isIls = String(t.ticker).toUpperCase().endsWith(".TA");
-        const tradeCurrency: Currency = isIls ? "ILS" : "USD";
+        const tradeCurrency = tradeCurrencyForTicker(t.ticker);
+        const computedNotionalBase = computeNotionalBase({
+          qty: t.qty,
+          price: t.price,
+          baseCurrency: base,
+          tradeCurrency,
+          fxRate: t.fxRate,
+          notionalBase: t.notionalBase,
+        });
         return {
           ticker: t.ticker,
           side: t.side,
           qty: Number(t.qty),
           price: Number(t.price),
           tradeCurrency,
-          ...(Number.isFinite(Number(t.notionalBase)) && Number(t.notionalBase) > 0 ? { notionalBase: Number(t.notionalBase) } : {}),
+          ...(computedNotionalBase != null ? { notionalBase: Number(computedNotionalBase) } : {}),
           ...(Number.isFinite(Number(t.fxRate)) && Number(t.fxRate) > 0 ? { fxRate: Number(t.fxRate) } : {}),
           meta: { source: "wealth-ui", kind: "execution" },
         };
@@ -422,9 +496,7 @@ export default function Wealth() {
     });
 
     alert("Recorded execution.");
-    setPlan(null);
-    setConfirmExecuted(false);
-    await loadSnapshot();
+    await refreshWealth({ includeUniverseMeta: !universeCollapsed });
   }
 
   useEffect(() => {
@@ -433,19 +505,10 @@ export default function Wealth() {
 
   useEffect(() => {
     localStorage.setItem("wealth.portfolioId", String(portfolioId));
-    void loadSnapshot();
-    void loadUniverse();
-    setAssets([]);
-    setSignalMatrixRows([]);
-    setQuotes({});
-    void loadAssetsOnly(portfolioId);
-    setPlan(null);
-    setConfirmExecuted(false);
+    // Always start collapsed on entry and when switching portfolios.
+    setUniverseCollapsed(true);
+    void refreshWealth({ portfolioId, includeUniverseMeta: false });
   }, [portfolioId]);
-
-  useEffect(() => {
-    localStorage.setItem("wealth.universeCollapsed", universeCollapsed ? "1" : "0");
-  }, [universeCollapsed]);
 
   const baseCurrency: Currency = (snapshot?.baseCurrency || "ILS") as Currency;
 
@@ -569,8 +632,17 @@ export default function Wealth() {
           <button
             className="ghost"
             onClick={() => {
-              void loadSnapshot();
-              void loadUniverse();
+              navigate(`/recordbook?portfolioId=${portfolioId}`);
+            }}
+            title="Open Record Book"
+          >
+            Record Book
+          </button>
+
+          <button
+            className="ghost"
+            onClick={() => {
+              void refreshWealth({ includeUniverseMeta: !universeCollapsed });
             }}
             disabled={loadingSnap || loadingUniverse}
             title="Refresh snapshot + universe"
@@ -660,16 +732,7 @@ export default function Wealth() {
         </div>
       </div>
 
-      {!!snapshot?.warnings?.length && (
-        <div className="banner warn">
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>FX / Data warnings</div>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {snapshot.warnings.slice(0, 8).map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+
 
       <div className="card wealth-card">
         <button
@@ -811,21 +874,25 @@ export default function Wealth() {
                 <th>Symbol</th>
                 <th className="num">Qty</th>
                 <th className="num">Last</th>
+                <th className="num">Avg Buy</th>
                 <th className="num">Value ({baseCurrency})</th>
+                <th className="num">Open P&L ({baseCurrency})</th>
               </tr>
             </thead>
             <tbody>
               {(snapshot?.positions || []).map(p => (
                 <tr key={p.ticker}>
                   <td>{p.ticker}</td>
-                  <td className="num">{Number(p.qty).toFixed(4)}</td>
-                  <td className="num">{p.lastPrice == null ? "—" : Number(p.lastPrice).toFixed(4)}</td>
-                  <td className="num">{Number(p.valueBase).toFixed(2)}</td>
+                  <td className="num">{format2(p.qty)}</td>
+                  <td className="num">{format2(p.lastPrice)}</td>
+                  <td className="num">{format2(p.avgBuyPrice)}</td>
+                  <td className="num">{format2(p.valueBase)}</td>
+                  <td className={`num ${typeof p.pnlOpenBase === 'number' ? (p.pnlOpenBase >= 0 ? 'pos' : 'neg') : ''}`}>{format2(p.pnlOpenBase)}</td>
                 </tr>
               ))}
               {!snapshot?.positions?.length && (
                 <tr>
-                  <td colSpan={4} style={{ color: "#9aa4b2" }}>No open positions.</td>
+                  <td colSpan={6} style={{ color: "#9aa4b2" }}>No open positions.</td>
                 </tr>
               )}
             </tbody>
@@ -873,6 +940,8 @@ export default function Wealth() {
                   <tr>
                     <th>Action</th>
                     <th>Symbol</th>
+                    <th className="num">Rec Qty</th>
+                    <th className="num">Rec Px</th>
                     <th className="num">Exec Qty</th>
                     <th className="num">Exec Px</th>
                     <th className="num">Exec FX</th>
@@ -882,8 +951,7 @@ export default function Wealth() {
                 <tbody>
                   {(plan.items || []).filter(it => it.action !== "HOLD" && Number(it.deltaQty) !== 0).map(it => {
                     const actionClass = it.action === "BUY" ? "buy" : "sell";
-                    const isUsdAsset = !String(it.ticker).toUpperCase().endsWith(".TA");
-                    const tradeCurrency: Currency = isUsdAsset ? "USD" : "ILS";
+                    const tradeCurrency: Currency = tradeCurrencyForTicker(it.ticker);
                     const needsFx = tradeCurrency !== baseCurrency;
                     const needsBaseCost = needsFx;
 
@@ -892,16 +960,21 @@ export default function Wealth() {
                     const fx = fillFxRates[it.ticker];
                     const cost = fillCostBase[it.ticker];
 
+                    const recQty = Math.abs(Number(it.deltaQty) || 0);
+                    const recPx = it.price;
+
                     return (
                       <tr key={it.ticker}>
                         <td><span className={`badge ${actionClass}`}>{it.action}</span></td>
                         <td>{it.ticker}{it.name ? ` — ${it.name}` : ""}</td>
+                        <td className="num mono">{format2(recQty)}</td>
+                        <td className="num mono">{format2(recPx)}</td>
                         <td className="num">
                           <input
                             type="number"
                             step="any"
                             value={q ?? ""}
-                            placeholder={String(Math.abs(Number(it.deltaQty) || 0))}
+                            placeholder={Number.isFinite(recQty) ? String(recQty) : ""}
                             onChange={e => setFillQtys(prev => ({ ...prev, [it.ticker]: Number(e.target.value) }))}
                             style={{ width: 120 }}
                           />
@@ -951,7 +1024,7 @@ export default function Wealth() {
                   })}
                   {!instructions.length && (
                     <tr>
-                      <td colSpan={6} style={{ color: "#9aa4b2" }}>No executable trades (all deltas are 0 or missing prices).</td>
+                      <td colSpan={8} style={{ color: "#9aa4b2" }}>No executable trades (all deltas are 0 or missing prices).</td>
                     </tr>
                   )}
                 </tbody>
@@ -964,16 +1037,7 @@ export default function Wealth() {
                 I executed these trades in my broker
               </label>
 
-              <input
-                type="number"
-                step="any"
-                value={commissionBase}
-                onChange={e => setCommissionBase(Number(e.target.value))}
-                style={{ width: 160 }}
-                title={`Commission per trade (${baseCurrency})`}
-              />
-
-              <button className="primary" onClick={recordExecution} disabled={!instructions.length}>
+              <button className="primary wealth-record-btn" onClick={recordExecution} disabled={!instructions.length || !confirmExecuted}>
                 Record execution
               </button>
             </div>
@@ -1063,8 +1127,7 @@ export default function Wealth() {
                   await loadPortfolios();
                   if (Number.isFinite(createdId) && createdId > 0) {
                     setPortfolioId(createdId);
-                    await loadUniverse(createdId);
-                    await loadSnapshot(createdId);
+                    await refreshWealth({ portfolioId: createdId, includeUniverseMeta: false });
                     if (createUniverse.length) setUniverseCollapsed(false);
                   }
 
@@ -1086,7 +1149,7 @@ export default function Wealth() {
             >
               {creating ? "Creating…" : "Create"}
             </button>
-            <div style={{ color: "var(--muted)", fontSize: 13 }}>Cash/NAV/Holdings are shown in base currency.</div>
+            <div style={{ color: "var(--muted)", fontSize: 13 }}>NAV = sum of position values (last price). Cash = remaining. All shown in base currency.</div>
           </div>
         </div>
       </Modal>
@@ -1143,8 +1206,7 @@ export default function Wealth() {
                     skipPreflight: universeAddSkipValidation,
                   });
 
-                  await loadUniverse();
-                  if (!assets.length || !signalMatrixRows.length) await loadUniverseMeta();
+                  await refreshWealth({ includeUniverseMeta: !universeCollapsed });
                   setUniverseAddText('');
                   setUniverseAddOpen(false);
                 } catch (e: any) {
@@ -1300,7 +1362,7 @@ export default function Wealth() {
                   setCashModalOpen(false);
                   setCashAmount(0);
                   setCashDesc("");
-                  await loadSnapshot();
+                  await refreshWealth({ includeUniverseMeta: false });
                 } catch (e: any) {
                   setCashErr(String(e?.message || e || "Failed to record cash flow"));
                 } finally {

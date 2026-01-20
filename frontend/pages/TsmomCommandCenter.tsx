@@ -55,6 +55,10 @@ type SignalMatrixRow = {
   sigmaAnn: number | null;
   rank: number | null;
   isTopK: boolean;
+
+  candles1dTotal?: number;
+  closes1dValid?: number;
+  requiredClosesForMomentum?: number;
 };
 
 type SignalMatrix = {
@@ -105,6 +109,7 @@ type TradeRow = {
   price: number;
   ts: number;
   fee?: number | null;
+  fee_base?: number | null;
   strategy_tag?: string | null;
   notes?: string | null;
   meta?: string | null;
@@ -570,15 +575,23 @@ export default function TsmomCommandCenter() {
     md.push("");
     md.push(`Generated: ${new Date().toISOString()}`);
     md.push("");
-    md.push(`| Time | Symbol | Side | Qty | Price | Fee | Strategy | Notes |`);
+    const base = (plan?.baseCurrency || 'ILS');
+    let feesTotalBase = 0;
+
+    md.push(`| Time | Symbol | Side | Qty | Price | Fee (${base}) | Strategy | Notes |`);
     md.push(`| --- | --- | --- | ---: | ---: | ---: | --- | --- |`);
     for (const t of rows) {
       const time = new Date(t.ts).toLocaleString();
-      const fee = (t.fee ?? "");
+      const feeBase = Number.isFinite(Number(t.fee_base)) ? Number(t.fee_base) : (Number.isFinite(Number(t.fee)) ? Number(t.fee) : NaN);
+      if (Number.isFinite(feeBase)) feesTotalBase += feeBase;
+      const feeStr = Number.isFinite(feeBase) ? String(feeBase) : "";
       const strat = (t.strategy_tag ?? "");
       const notes = (t.notes ?? "").replaceAll("|", "\\|");
-      md.push(`| ${time} | ${t.symbol} | ${t.side} | ${Number(t.qty)} | ${Number(t.price)} | ${fee} | ${strat} | ${notes} |`);
+      md.push(`| ${time} | ${t.symbol} | ${t.side} | ${Number(t.qty)} | ${Number(t.price)} | ${feeStr} | ${strat} | ${notes} |`);
     }
+
+    md.push('');
+    md.push(`Total fees (${base}): ${feesTotalBase.toFixed(2)}`);
     const text = md.join("\n");
     void navigator.clipboard.writeText(text);
     alert("Copied Markdown to clipboard.");
@@ -904,6 +917,15 @@ export default function TsmomCommandCenter() {
               {filteredMatrix.map(r => {
                 const mom = r.momentum != null ? r.momentum * 100 : null;
                 const momClass = mom == null ? '' : mom >= 0 ? 'pos' : 'neg';
+                const need = Number(r.requiredClosesForMomentum);
+                const have = Number(r.closes1dValid);
+                const showNotEnough =
+                  mom == null &&
+                  Number.isFinite(need) &&
+                  Number.isFinite(have) &&
+                  need > 0 &&
+                  have >= 0 &&
+                  have < need;
                 return (
                   <tr key={r.ticker} className={r.isTopK ? 'selected' : ''}>
                     <td className="num mono">{r.rank ?? '—'}</td>
@@ -911,7 +933,21 @@ export default function TsmomCommandCenter() {
                     <td title={r.name ?? undefined}>{r.name ?? '—'}</td>
                     <td>{r.category ?? '—'}</td>
                     <td className="num mono">{r.price != null ? r.price.toFixed(3) : '—'}</td>
-                    <td className={`num mono ${momClass}`}>{mom != null ? (mom >= 0 ? '+' : '') + mom.toFixed(2) + '%' : '—'}</td>
+                    <td className={`num mono ${momClass}`}>
+                      {mom != null ? (mom >= 0 ? '+' : '') + mom.toFixed(2) + '%' : '—'}
+                      {showNotEnough && (
+                        <div
+                          style={{
+                            marginTop: 4,
+                            fontSize: 12,
+                            color: '#9aa4b2',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          Not enough candles (need {need}, have {have})
+                        </div>
+                      )}
+                    </td>
                     <td className="num mono">{r.sigmaAnn != null ? r.sigmaAnn.toFixed(3) : '—'}</td>
                   </tr>
                 );
@@ -949,7 +985,7 @@ export default function TsmomCommandCenter() {
 
         {!perf?.points?.length && (
           <p style={{ color: '#9aa4b2', marginBottom: 0 }}>
-            Need benchmark candles in the DB (tries TA125.TA, TA35.TA, SPY).
+            Need benchmark candles in the DB (tries ^TA125.TA, TA35.TA, SPY).
           </p>
         )}
       </div>
@@ -1162,7 +1198,7 @@ export default function TsmomCommandCenter() {
                 <td><span className={`badge ${t.side === "BUY" ? "buy" : "sell"}`}>{t.side}</span></td>
                 <td>{Number(t.qty)}</td>
                 <td>{Number(t.price)}</td>
-                <td>{t.fee ?? "—"}</td>
+                <td>{(Number.isFinite(Number(t.fee_base)) ? Number(t.fee_base) : (t.fee ?? "—"))}</td>
                 <td>{t.strategy_tag ?? "—"}</td>
                 <td>{t.notes ?? "—"}</td>
               </tr>

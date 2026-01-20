@@ -805,8 +805,8 @@ export function registerIpcHandlers() {
       ts: z.number().int().positive(),
       strategyTag: z.string().max(40).optional(),
       notes: z.string().max(500).optional(),
-      commissionNIS: z.number().positive().max(500).optional(), // legacy name
-      commissionBase: z.number().positive().max(500).optional(),
+      commissionNIS: z.number().nonnegative().max(500).optional(), // legacy name
+      commissionBase: z.number().nonnegative().max(500).optional(),
       trades: z.array(Trade).min(1),
       cashFlows: z.array(CashFlow).optional(),
     });
@@ -814,7 +814,9 @@ export function registerIpcHandlers() {
     const p = P.parse(params);
     const portfolioId = Number(p.portfolioId ?? getDefaultPortfolioId());
     const baseCurrency = getPortfolioBaseCurrency(portfolioId);
-    const defaultFeeBase = Number(p.commissionBase ?? p.commissionNIS ?? 5);
+    // Fees are recorded for the trade ledger / record book, but should not be assumed.
+    // If not supplied, default to 0 (caller can set explicit fees elsewhere).
+    const defaultFeeBase = Number(p.commissionBase ?? p.commissionNIS ?? 0);
 
     const insTrade = db.prepare(`
       INSERT INTO portfolio_trades(portfolio_id, symbol, side, qty, price, trade_currency, fx_rate, notional_base, fee_base, ts, fee, strategy_tag, notes, meta)
@@ -847,7 +849,7 @@ export function registerIpcHandlers() {
         }
 
         const feeBase = Number.isFinite(Number(t.feeBase)) ? Number(t.feeBase) : defaultFeeBase;
-        const legacyFee = baseCurrency === 'ILS' ? feeBase : null;
+        const legacyFee = (baseCurrency === 'ILS' && feeBase > 0) ? feeBase : null;
 
         insTrade.run({
           portfolio_id: portfolioId,
@@ -967,7 +969,7 @@ export function registerIpcHandlers() {
       const like = `${p.strategyTagPrefix.toUpperCase()}%`;
       return db
         .prepare(`
-          SELECT id, symbol, side, qty, price, ts, fee, strategy_tag, notes, meta
+          SELECT id, symbol, side, qty, price, trade_currency, fx_rate, notional_base, fee, fee_base, ts, strategy_tag, notes, meta
           FROM portfolio_trades
           WHERE portfolio_id=? AND strategy_tag LIKE ?
           ORDER BY ts DESC, id DESC
@@ -978,13 +980,27 @@ export function registerIpcHandlers() {
 
     return db
       .prepare(`
-        SELECT id, symbol, side, qty, price, ts, fee, strategy_tag, notes, meta
+        SELECT id, symbol, side, qty, price, trade_currency, fx_rate, notional_base, fee, fee_base, ts, strategy_tag, notes, meta
         FROM portfolio_trades
         WHERE portfolio_id=?
         ORDER BY ts DESC, id DESC
         LIMIT ?
       `)
       .all(portfolioId, limit);
+  });
+
+  ipcMain.handle('tsmom:update-trade-notes', async (_e, params: any) => {
+    const P = z.object({
+      tradeId: z.number().int().positive(),
+      notes: z.string().max(2000).nullable().optional(),
+    });
+    const p = P.parse(params || {});
+
+    const row = db.prepare('SELECT id FROM portfolio_trades WHERE id=?').get(p.tradeId) as any;
+    if (!row) throw new Error(`Trade not found: ${p.tradeId}`);
+
+    db.prepare('UPDATE portfolio_trades SET notes=? WHERE id=?').run(p.notes ?? null, p.tradeId);
+    return { ok: true };
   });
 
   ipcMain.handle('tsmom:list-sync-runs', async (_e, params: any) => {

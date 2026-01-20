@@ -102,6 +102,28 @@ button.danger:disabled { opacity: .55; cursor: not-allowed; }
 .wealth-title { margin: 0; font-size: 22px; letter-spacing: .2px; }
 .wealth-subtitle { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; color: var(--muted); }
 
+/* Wealth: Record execution button states */
+.wealth button.wealth-record-btn {
+  transition: filter .15s ease, transform .05s ease, box-shadow .15s ease, opacity .15s ease;
+}
+.wealth button.wealth-record-btn:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+  background: #1a212c;
+  border-color: #25313f;
+  color: #9aa4b2;
+  box-shadow: none;
+}
+.wealth button.wealth-record-btn:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(92,200,255,.25) inset, 0 8px 22px rgba(29,123,215,.18);
+}
+.wealth button.wealth-record-btn:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+.wealth button.wealth-record-btn:not(:disabled):active {
+  transform: translateY(1px);
+}
+
 .wealth-card h3 { font-weight: 650; }
 
 .wealth-stats { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

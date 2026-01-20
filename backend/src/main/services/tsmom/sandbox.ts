@@ -59,7 +59,7 @@ function computeMomentum(closes: number[], lookback: number, skip: number): numb
   if (startIdx < 0 || endIdx <= 0) return null;
   const a = closes[startIdx];
   const b = closes[endIdx];
-  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) return null;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
   return (b / a) - 1;
 }
 
@@ -69,7 +69,7 @@ function computeSigmaAnn(closes: number[], com: number): number | null {
   for (let i = 1; i < closes.length; i++) {
     const a = closes[i - 1];
     const b = closes[i];
-    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) continue;
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) continue;
     rets.push((b / a) - 1);
   }
   if (rets.length < 3) return null;
@@ -84,7 +84,7 @@ function loadCloseSeries(db: any, symbol: string): CandleRow[] {
     .all(symbol) as Array<{ ts: number; close: number }>;
   return rows
     .map(r => ({ ts: Number(r.ts), close: Number(r.close) }))
-    .filter(r => Number.isFinite(r.ts) && Number.isFinite(r.close));
+    .filter(r => Number.isFinite(r.ts) && Number.isFinite(r.close) && r.close > 0);
 }
 
 function applyMultiplier(series: CandleRow[], multiplier: number): CandleRow[] {
@@ -104,7 +104,7 @@ function pickBenchmark(db: any, preferred?: string | null): string | null {
     }
   };
 
-  const prefs = [preferred, 'TA125.TA', 'TA35.TA', 'SPY', '^GSPC'].filter(Boolean) as string[];
+    const prefs = [preferred, '^TA125.TA', 'TA125.TA', 'TA35.TA', 'SPY', '^GSPC'].filter(Boolean) as string[];
   for (const s of prefs) {
     if (candCount(s) > 50) return s;
   }
@@ -136,7 +136,7 @@ function annVolFromEquity(eq: number[]): number | null {
   for (let i = 1; i < eq.length; i++) {
     const a = eq[i - 1];
     const b = eq[i];
-    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) continue;
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) continue;
     rets.push((b / a) - 1);
   }
   if (rets.length < 3) return null;
@@ -160,7 +160,7 @@ export async function runTsmomSandbox(opts?: { years?: number; benchmark?: strin
   const years = Math.min(10, Math.max(1, Number(opts?.years ?? 5)));
   const benchmark = pickBenchmark(db, opts?.benchmark ?? null);
   const warnings: string[] = [];
-  if (!benchmark) warnings.push('No benchmark candles found (TA125.TA/TA35.TA/SPY/^GSPC).');
+  if (!benchmark) warnings.push('No benchmark candles found (^TA125.TA/TA35.TA/SPY/^GSPC).');
 
   const params: SandboxParams = {
     lookbackTradingDays: 63,

@@ -5,6 +5,9 @@ export type PositionSnapshot = {
   ticker: string;
   qty: number;
   lastPrice: number | null;
+  avgBuyPrice: number | null;
+  costBasisBase: number | null;
+  pnlOpenBase: number | null;
   assetCurrency: Currency;
   fxRateToBase: number;
   valueBase: number;
@@ -57,6 +60,20 @@ function getLatestTwoCloses(symbol: string): { last: number | null; prev: number
     prev: Number.isFinite(prev) ? prev : null,
   };
 }
+
+type TradeRow = {
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  qty: number;
+  price: number;
+  trade_currency?: string | null;
+  fx_rate?: number | null;
+  notional_base?: number | null;
+  fee_base?: number | null;
+  fee?: number | null;
+  ts: number;
+  id: number;
+};
 
 function getUsdIls(): number | null {
   // Yahoo FX ticker typically used: USDILS=X
@@ -119,7 +136,65 @@ export function computePortfolioSnapshot(portfolioId: number): PortfolioSnapshot
 
   const warnings: string[] = [];
 
+  // Reconstruct per-symbol average cost from trade history (average cost method).
+  // - costBasisBase excludes fees (fees are tracked separately in the trade ledger / record book).
+  // - avgBuyPrice is returned in trade/asset currency units.
+  const tradeRows = db
+    .prepare(`SELECT id, symbol, side, qty, price, ts, trade_currency, fx_rate, notional_base, fee_base, fee FROM portfolio_trades WHERE portfolio_id=? ORDER BY ts ASC, id ASC`)
+    .all(pid) as TradeRow[];
+
+  const costBySymbol: Record<string, { shares: number; costBasisBase: number; costTrade: number }> = {};
+
+  for (const tr of tradeRows) {
+    const symbol = String(tr.symbol || '').toUpperCase();
+    const side = String(tr.side || '').toUpperCase() as 'BUY' | 'SELL';
+    const qty = Number(tr.qty);
+    const price = Number(tr.price);
+    if (!symbol || !Number.isFinite(qty) || qty <= 0) continue;
+
+    let notionalBase = Number(tr.notional_base);
+    if (!Number.isFinite(notionalBase) || notionalBase < 0) {
+      // Fallback for legacy rows.
+      const tradeCurrency = String(tr.trade_currency || '').toUpperCase() || baseCurrency;
+      const grossTrade = (Number.isFinite(price) ? price : 0) * qty;
+      if (tradeCurrency === baseCurrency) {
+        notionalBase = grossTrade;
+      } else {
+        const fx = Number(tr.fx_rate);
+        notionalBase = (Number.isFinite(fx) && fx > 0) ? grossTrade * fx : 0;
+      }
+    }
+    if (!Number.isFinite(notionalBase) || notionalBase < 0) notionalBase = 0;
+
+    const slot = costBySymbol[symbol] || { shares: 0, costBasisBase: 0, costTrade: 0 };
+
+    if (side === 'BUY') {
+      slot.shares += qty;
+      slot.costBasisBase += notionalBase;
+      // We treat `price` as already in trade currency units (USD or ILS).
+      if (Number.isFinite(price) && price > 0) slot.costTrade += qty * price;
+    } else {
+      // SELL: reduce cost basis by average-cost-per-share (ignores sell proceeds and sell fees).
+      if (slot.shares > 0) {
+        const sellQty = Math.min(qty, slot.shares);
+        const avgBase = slot.costBasisBase / slot.shares;
+        const avgTrade = slot.costTrade / slot.shares;
+        slot.shares -= sellQty;
+        slot.costBasisBase -= avgBase * sellQty;
+        slot.costTrade -= avgTrade * sellQty;
+        if (slot.shares <= 1e-9) {
+          slot.shares = 0;
+          slot.costBasisBase = 0;
+          slot.costTrade = 0;
+        }
+      }
+    }
+
+    costBySymbol[symbol] = slot;
+  }
+
   const positions: PositionSnapshot[] = [];
+  // holdingsValueBase is the market value of holdings in base currency (sum over positions of qty * last * FX).
   let holdingsValueBase = 0;
 
   // For daily P&L we need previous close for assets and FX.
@@ -133,7 +208,9 @@ export function computePortfolioSnapshot(portfolioId: number): PortfolioSnapshot
     warnings.push('Missing FX history for USDILS=X; daily P&L may be unavailable.');
   }
 
-  let holdingsPrevBase = 0;
+  let holdingsPrevMarketBase = 0;
+
+  let costBasisOpenBase = 0;
 
   for (const [ticker, qtyRaw] of Object.entries(state.positions)) {
     const qty = Number(qtyRaw);
@@ -141,20 +218,20 @@ export function computePortfolioSnapshot(portfolioId: number): PortfolioSnapshot
 
     const assetCurrency = inferAssetCurrency(ticker);
     const closes2 = getLatestTwoCloses(ticker);
-    const lastPrice = closes2.last;
-
-    // Keep lastPrice in the raw candle units (useful for UI), but use multiplier for valuation.
     const pxMult = priceMultiplierFor(ticker);
+
+    // Normalize candle prices into asset currency units (e.g., ILS for .TA) by applying multiplier.
+    const lastPrice = (closes2.last != null && Number.isFinite(closes2.last)) ? (Number(closes2.last) * pxMult) : null;
+    const prevPrice = (closes2.prev != null && Number.isFinite(closes2.prev)) ? (Number(closes2.prev) * pxMult) : null;
 
     const { rate, warning } = fxRateToBase(baseCurrency, assetCurrency);
     if (warning) warnings.push(warning);
 
-    const valueBase = (Number.isFinite(lastPrice as any) && lastPrice != null) ? (qty * lastPrice * pxMult * rate) : 0;
-    holdingsValueBase += valueBase;
+    const marketValueBase = (lastPrice != null && Number.isFinite(lastPrice) && lastPrice > 0) ? (qty * lastPrice * rate) : 0;
+    holdingsValueBase += marketValueBase;
 
     // Daily P&L: compare last close vs previous close in base currency.
     // We use FX close-to-close when asset currency differs from base.
-    const prevPrice = closes2.prev;
     let ratePrev = rate;
     if (baseCurrency !== assetCurrency) {
       if (assetCurrency === 'USD' && baseCurrency === 'ILS') {
@@ -164,78 +241,53 @@ export function computePortfolioSnapshot(portfolioId: number): PortfolioSnapshot
       }
     }
 
-    const valuePrev = (prevPrice != null && Number.isFinite(prevPrice)) ? (qty * prevPrice * pxMult * ratePrev) : 0;
-    holdingsPrevBase += valuePrev;
+    const marketValuePrevBase = (prevPrice != null && Number.isFinite(prevPrice) && prevPrice > 0) ? (qty * prevPrice * ratePrev) : 0;
+    holdingsPrevMarketBase += marketValuePrevBase;
+
+    // Attach avg buy price + cost basis for this holding (best-effort).
+    const symKey = String(ticker).toUpperCase();
+    const slot = costBySymbol[symKey];
+
+    let avgBuyPrice: number | null = null;
+    let costBasisBase: number | null = null;
+    if (slot && slot.shares > 0 && qty > 0) {
+      const basePerShare = slot.costBasisBase / slot.shares;
+      const tradePerShare = slot.costTrade / slot.shares;
+      costBasisBase = Math.max(0, basePerShare * qty);
+      avgBuyPrice = Number.isFinite(tradePerShare) && tradePerShare > 0 ? tradePerShare : null;
+      costBasisOpenBase += Math.max(0, Number(costBasisBase) || 0);
+    }
+
+    // Open P&L (unrealized) is market value minus cost basis (avg cost).
+    const pnlOpenBase = (costBasisBase != null && Number.isFinite(costBasisBase)) ? (marketValueBase - costBasisBase) : null;
 
     positions.push({
       ticker,
       qty,
       lastPrice,
+      avgBuyPrice,
+      costBasisBase,
+      pnlOpenBase,
       assetCurrency,
       fxRateToBase: rate,
-      valueBase,
+      valueBase: marketValueBase,
     });
   }
 
   positions.sort((a, b) => Math.abs(b.valueBase) - Math.abs(a.valueBase));
 
   const cashBase = Number(state.cashBase);
-  const navBase = cashBase + holdingsValueBase;
+  // NAV per Wealth UI definition: sum of position market values (cash is shown separately).
+  const navBase = holdingsValueBase;
 
   // Daily P&L
-  const prevNavBase = cashBase + holdingsPrevBase;
-  const pnlDailyBase = Number.isFinite(holdingsValueBase) && Number.isFinite(holdingsPrevBase) ? (holdingsValueBase - holdingsPrevBase) : null;
-  const pnlDailyPct = (pnlDailyBase != null && Number.isFinite(prevNavBase) && prevNavBase > 0) ? (pnlDailyBase / prevNavBase) : null;
+  // Daily P&L is the cumulative close-to-close change across all held assets.
+  const pnlDailyBase = Number.isFinite(holdingsValueBase) && Number.isFinite(holdingsPrevMarketBase) ? (holdingsValueBase - holdingsPrevMarketBase) : null;
+  const pnlDailyPct = (pnlDailyBase != null && holdingsPrevMarketBase > 0) ? (pnlDailyBase / holdingsPrevMarketBase) : null;
 
-  // Open P&L (unrealized): reconstruct remaining cost basis from trade history using average cost method.
-  const tradeRows = db
-    .prepare(`SELECT symbol, side, qty, notional_base, fee_base, fee, ts, id FROM portfolio_trades WHERE portfolio_id=? ORDER BY ts ASC, id ASC`)
-    .all(pid) as any[];
-
-  const costShares: Record<string, { shares: number; costBasis: number }> = {};
-  for (const tr of tradeRows) {
-    const symbol = String(tr.symbol || '').toUpperCase();
-    const side = String(tr.side || '').toUpperCase();
-    const qty = Number(tr.qty);
-    if (!symbol || !Number.isFinite(qty) || qty <= 0) continue;
-
-    const feeBase = Number.isFinite(Number(tr.fee_base)) ? Number(tr.fee_base) : (Number.isFinite(Number(tr.fee)) ? Number(tr.fee) : 0);
-    const notionalBase = Number(tr.notional_base);
-    const grossBase = Number.isFinite(notionalBase) && notionalBase >= 0 ? notionalBase : 0;
-
-    const slot = costShares[symbol] || { shares: 0, costBasis: 0 };
-
-    if (side === 'BUY') {
-      slot.shares += qty;
-      slot.costBasis += grossBase + feeBase;
-    } else if (side === 'SELL') {
-      if (slot.shares <= 0) {
-        // Nothing to reduce; ignore.
-      } else {
-        const sellQty = Math.min(qty, slot.shares);
-        const avgCost = slot.costBasis / slot.shares;
-        slot.shares -= sellQty;
-        slot.costBasis -= avgCost * sellQty;
-        if (slot.shares <= 1e-9) {
-          slot.shares = 0;
-          slot.costBasis = 0;
-        }
-      }
-    }
-
-    costShares[symbol] = slot;
-  }
-
-  let costBasisOpenBase = 0;
-  for (const p of positions) {
-    const slot = costShares[String(p.ticker).toUpperCase()];
-    if (!slot) continue;
-    // If we have negative/short positions, cost basis isn't well-defined in this v1.
-    if (Number(p.qty) <= 0) continue;
-    costBasisOpenBase += Math.max(0, Number(slot.costBasis) || 0);
-  }
-
-  const pnlOpenBase = Number.isFinite(costBasisOpenBase) ? (holdingsValueBase - costBasisOpenBase) : null;
+  // Open P&L (unrealized)
+  // Open P&L is the cumulative unrealized P&L across held assets.
+  const pnlOpenBase = Number.isFinite(holdingsValueBase) && Number.isFinite(costBasisOpenBase) ? (holdingsValueBase - costBasisOpenBase) : null;
   const pnlOpenPct = (pnlOpenBase != null && costBasisOpenBase > 0) ? (pnlOpenBase / costBasisOpenBase) : null;
 
   return {

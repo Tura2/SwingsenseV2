@@ -5,7 +5,12 @@ import type { TsmomAssetRow } from './types.js';
 import { resolveTicker } from './tickerMapper.js';
 
 function normalizeCandles(arr: Candle[]): Candle[] {
-  const cleaned = (arr || []).filter(c => [c.ts, c.open, c.high, c.low, c.close, c.volume].every(Number.isFinite));
+  const cleaned = (arr || []).filter(c => {
+    if (![c.ts, c.open, c.high, c.low, c.close, c.volume].every(Number.isFinite)) return false;
+    // Guardrail: non-positive prices are invalid and cause -100% artifacts in momentum/benchmarks.
+    if (c.open <= 0 || c.high <= 0 || c.low <= 0 || c.close <= 0) return false;
+    return true;
+  });
   cleaned.sort((a, b) => a.ts - b.ts);
   const dedup: Candle[] = [];
   let lastTs = -1;
@@ -62,7 +67,7 @@ export type SyncRunSummary = {
 };
 
 export class TsmomSyncManager {
-  async syncDailyCandlesForUniverse(opts?: { backfillYears?: number; sanityMovePct?: number; corpActionMovePct?: number }): Promise<SyncRunSummary> {
+  async syncDailyCandlesForUniverse(opts?: { backfillYears?: number; sanityMovePct?: number; corpActionMovePct?: number; includeInactive?: boolean }): Promise<SyncRunSummary> {
     const db = getDB();
     const startedAt = Date.now();
     const warnings: string[] = [];
@@ -71,8 +76,14 @@ export class TsmomSyncManager {
     const sanityMovePct = Number(opts?.sanityMovePct ?? 20);
     const corpActionMovePct = Number(opts?.corpActionMovePct ?? Math.max(60, sanityMovePct * 2.5));
 
+    const includeInactive = Boolean(opts?.includeInactive);
+
     const assets = db
-      .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active' ORDER BY category, ticker")
+      .prepare(
+        includeInactive
+          ? "SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets ORDER BY category, ticker"
+          : "SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active' ORDER BY category, ticker"
+      )
       .all() as TsmomAssetRow[];
 
     const runInfo = db

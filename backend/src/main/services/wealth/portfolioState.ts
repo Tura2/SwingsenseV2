@@ -103,7 +103,7 @@ export type ApplyTrade = {
   side: 'BUY' | 'SELL';
   qty: number;
   notionalBase: number; // gross amount in portfolio base currency
-  feeBase: number; // fee in base currency
+  feeBase: number; // fee in base currency (recorded for reporting; not applied to portfolio cash)
 };
 
 export type ApplyTradesOpts = {
@@ -135,9 +135,10 @@ export function applyTradesToState(opts: ApplyTradesOpts) {
     pos[ticker] = Number(pos[ticker] || 0) + signedQty;
     if (!Number.isFinite(pos[ticker]) || pos[ticker] === 0) delete pos[ticker];
 
-    const fee = Number.isFinite(feeBase) ? feeBase : 0;
-    if (t.side === 'BUY') cash -= notionalBase + fee;
-    else cash += notionalBase - fee;
+    // Fees are tracked in the trade ledger / record book, but are not applied to portfolio cash.
+    void feeBase;
+    if (t.side === 'BUY') cash -= notionalBase;
+    else cash += notionalBase;
   }
 
   db.prepare('UPDATE portfolio_states SET cash_base=?, positions_json=?, updated_at=? WHERE portfolio_id=?')
@@ -180,8 +181,10 @@ export function rebuildPortfolioStateFromHistory(portfolioId: number) {
       notionalBase = (Number.isFinite(price) ? price : 0) * qty;
     }
 
-    if (side === 'BUY') cash -= notionalBase + feeBase;
-    else cash += notionalBase - feeBase;
+    // Fees are recorded but not applied to portfolio cash.
+    void feeBase;
+    if (side === 'BUY') cash -= notionalBase;
+    else cash += notionalBase;
   }
 
   const now = Date.now();

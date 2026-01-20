@@ -30,7 +30,7 @@ function loadCloseSeries(db: any, symbol: string): CandleRow[] {
     .all(symbol) as Array<{ ts: number; close: number }>;
   return rows
     .map(r => ({ ts: Number(r.ts), close: Number(r.close) }))
-    .filter(r => Number.isFinite(r.ts) && Number.isFinite(r.close));
+    .filter(r => Number.isFinite(r.ts) && Number.isFinite(r.close) && r.close > 0);
 }
 
 function applyMultiplier(series: CandleRow[], multiplier: number): CandleRow[] {
@@ -50,7 +50,7 @@ function pickBenchmark(db: any, preferred?: string | null): string | null {
     }
   };
 
-  const prefs = [preferred, 'TA125.TA', 'TA35.TA', 'SPY', '^GSPC'].filter(Boolean) as string[];
+  const prefs = [preferred, '^TA125.TA', 'TA125.TA', 'TA35.TA', 'SPY', '^GSPC'].filter(Boolean) as string[];
   for (const s of prefs) {
     if (candCount(s) > 50) return s;
   }
@@ -120,7 +120,7 @@ export async function computeTsmomPerformanceSeries(opts?: { portfolioId?: numbe
     const qty = Number(t.qty);
     const price = Number(t.price);
     const feeLegacy = Number(t.fee);
-    const feeBase = Number.isFinite(Number(t.fee_base)) ? Number(t.fee_base) : (Number.isFinite(feeLegacy) ? feeLegacy : 5);
+    const feeBase = Number.isFinite(Number(t.fee_base)) ? Number(t.fee_base) : (Number.isFinite(feeLegacy) ? feeLegacy : 0);
     if (!Number.isFinite(ts) || !Number.isFinite(qty) || !Number.isFinite(price)) continue;
 
     let grossBase = Number(t.notional_base);
@@ -135,7 +135,9 @@ export async function computeTsmomPerformanceSeries(opts?: { portfolioId?: numbe
       }
     }
 
-    const deltaCash = t.side === 'BUY' ? (-(grossBase + feeBase)) : (grossBase - feeBase);
+    // Fees are tracked in the trade ledger / record book, but are not applied to portfolio cash.
+    void feeBase;
+    const deltaCash = t.side === 'BUY' ? (-grossBase) : (grossBase);
     cashEvents.push({ ts, deltaCash });
   }
   cashEvents.sort((a, b) => a.ts - b.ts);
