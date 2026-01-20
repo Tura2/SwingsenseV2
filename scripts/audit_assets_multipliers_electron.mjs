@@ -11,13 +11,14 @@ import process from 'node:process';
 import { getDB, initDB } from '../dist-electron/src/main/db.js';
 
 function parseArgs(argv) {
-  const out = { min: 0, max: Number.POSITIVE_INFINITY, onlyActive: false, showNon1: true };
+  const out = { portfolioId: 1, min: 0, max: Number.POSITIVE_INFINITY, showNon1: true };
   for (const a of argv.slice(2)) {
-    if (a === '--onlyActive') out.onlyActive = true;
+    if (a.startsWith('--portfolioId=')) out.portfolioId = Number(a.slice('--portfolioId='.length));
     else if (a === '--noShowNon1') out.showNon1 = false;
     else if (a.startsWith('--min=')) out.min = Number(a.slice('--min='.length));
     else if (a.startsWith('--max=')) out.max = Number(a.slice('--max='.length));
   }
+  if (!Number.isFinite(out.portfolioId) || out.portfolioId <= 0) out.portfolioId = 1;
   return out;
 }
 
@@ -39,12 +40,12 @@ function main() {
 
     const rows = db
       .prepare(
-        `SELECT ticker, name, category, status, yahoo_symbol, price_multiplier
-         FROM assets
-         ${args.onlyActive ? "WHERE status='active'" : ''}
+        `SELECT ticker, name, category, 'active' as status, yahoo_symbol, price_multiplier
+         FROM portfolio_assets
+         WHERE portfolio_id=?
          ORDER BY ticker ASC`
       )
-      .all();
+      .all(args.portfolioId);
 
     const suspicious = [];
     const non1 = [];
@@ -56,7 +57,7 @@ function main() {
     }
 
     console.log(`[audit] dbPath=${dbPath}`);
-    console.log(`[audit] assets=${rows.length} suspicious=${suspicious.length} non1=${non1.length}`);
+    console.log(`[audit] portfolioId=${args.portfolioId} rows=${rows.length} suspicious=${suspicious.length} non1=${non1.length}`);
 
     if (args.showNon1 && non1.length) {
       console.log('--- non-1 multipliers ---');

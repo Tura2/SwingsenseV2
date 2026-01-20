@@ -4,7 +4,13 @@ import { yahooCandidatesForSymbol, normalizeInputSymbol, resolveCanonicalYahooSy
 import { fetchYahooCandlesByPeriod } from "./yahooChartApi.js";
 
 function normalizeCandles(arr: Candle[]): Candle[] {
-  const cleaned = arr.filter(c => [c.ts, c.open, c.high, c.low, c.close, c.volume].every(Number.isFinite));
+  const cleaned = arr.filter(c => {
+    if (![c.ts, c.open, c.high, c.low, c.close, c.volume].every(Number.isFinite)) return false;
+    if (c.ts <= 0) return false;
+    if (c.open <= 0 || c.high <= 0 || c.low <= 0 || c.close <= 0) return false;
+    if (c.high < c.low) return false;
+    return true;
+  });
   cleaned.sort((a,b)=>a.ts-b.ts);
   const dedup: Candle[] = [];
   let lastTs = -1;
@@ -13,6 +19,24 @@ function normalizeCandles(arr: Candle[]): Candle[] {
     dedup.push(c); lastTs = c.ts;
   }
   return dedup;
+}
+
+function hasSuspiciousDiscontinuity(candles: Candle[]): boolean {
+  // Heuristic for split-like discontinuities in cached daily candles.
+  // If we see a single-day jump beyond a wide threshold, force a refetch.
+  // Adjusted close should eliminate most of these.
+  if (!candles || candles.length < 3) return false;
+  const start = Math.max(1, candles.length - 400);
+  for (let i = start; i < candles.length; i++) {
+    const prev = candles[i - 1];
+    const cur = candles[i];
+    const a = Number(prev?.close);
+    const b = Number(cur?.close);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) continue;
+    const ratio = b / a;
+    if (ratio < 0.25 || ratio > 4) return true;
+  }
+  return false;
 }
 
 async function fetchChartCandles(ysym: string, interval: string, startMs: number, endMs: number): Promise<Candle[]> {
@@ -43,7 +67,33 @@ export async function getCandles(symbol: string, range: "1M"|"6M"|"1Y"|"5Y" = "1
     "SELECT COUNT(*) as c FROM candles WHERE symbol=? AND timeframe=? AND ts>=?"
   ).get(original, timeframe, startMs) as { c: number };
 
-  if (row.c < Math.floor(periods[range] * 0.8)) {
+  // If we already have enough candles, still sanity-check for split-like discontinuities.
+  // This is a lightweight guard against stale unadjusted closes that can cause -100% artifacts.
+  let cachedLooksBad = false;
+  if (row.c >= Math.floor(periods[range] * 0.8)) {
+    try {
+      const recent = db
+        .prepare(
+          "SELECT ts, open, high, low, close, volume FROM candles WHERE symbol=? AND timeframe=? AND ts>=? ORDER BY ts ASC"
+        )
+        .all(original, timeframe, now - 400 * msDay) as any[];
+      const norm = normalizeCandles(
+        recent.map(r => ({
+          ts: Number(r.ts),
+          open: Number(r.open),
+          high: Number(r.high),
+          low: Number(r.low),
+          close: Number(r.close),
+          volume: Number(r.volume),
+        }))
+      );
+      cachedLooksBad = hasSuspiciousDiscontinuity(norm);
+    } catch {
+      cachedLooksBad = false;
+    }
+  }
+
+  if (row.c < Math.floor(periods[range] * 0.8) || cachedLooksBad) {
     // Fetch fresh and upsert using first working candidate
     let res: Candle[] | null = null;
     let lastErr: any = null;

@@ -191,9 +191,30 @@ export async function runTsmomSandbox(opts?: { years?: number; benchmark?: strin
     };
   }
 
-  const assets = db
-    .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
-    .all() as TsmomAssetRow[];
+  // Universe is portfolio-based only. Legacy sandbox runner uses portfolio_id=1.
+  const portfolioId = 1;
+  const tickers = db
+    .prepare('SELECT ticker FROM portfolio_universe WHERE portfolio_id=? ORDER BY ticker ASC')
+    .all(portfolioId) as Array<{ ticker: string }>;
+
+  const assets = tickers.map(r => {
+    const t = String(r.ticker || '').toUpperCase();
+    const pa = db
+      .prepare("SELECT ticker, name, category, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM portfolio_assets WHERE portfolio_id=? AND ticker=?")
+      .get(portfolioId, t) as any;
+    const pm = Number(pa?.price_multiplier);
+    return {
+      ticker: t,
+      name: pa?.name ?? null,
+      category: pa?.category ?? null,
+      status: 'active',
+      yahoo_symbol: pa?.yahoo_symbol ?? null,
+      price_multiplier: (Number.isFinite(pm) && pm > 0) ? pm : (t.endsWith('.TA') ? 0.01 : 1),
+      created_at: Number(pa?.created_at) || Date.now(),
+      updated_at: Number(pa?.updated_at) || Date.now(),
+      meta: pa?.meta ?? null,
+    } as TsmomAssetRow;
+  });
 
   // Load asset close series once.
   const seriesByTicker = new Map<string, CandleRow[]>();

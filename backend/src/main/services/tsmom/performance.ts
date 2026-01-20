@@ -1,6 +1,5 @@
 import { getDB } from '../../db.js';
-import type { PerformancePoint, TsmomAssetRow } from './types.js';
-import { resolveTicker } from './tickerMapper.js';
+import type { PerformancePoint } from './types.js';
 
 type CandleRow = { ts: number; close: number };
 
@@ -22,6 +21,11 @@ function inferAssetCurrency(ticker: string): Currency {
   const t = String(ticker || '').toUpperCase();
   if (t.endsWith('.TA')) return 'ILS';
   return 'USD';
+}
+
+function inferMultiplierForTicker(ticker: string): number {
+  const t = String(ticker || '').toUpperCase();
+  return t.endsWith('.TA') ? 0.01 : 1;
 }
 
 function loadCloseSeries(db: any, symbol: string): CandleRow[] {
@@ -81,19 +85,26 @@ export async function computeTsmomPerformanceSeries(opts?: { portfolioId?: numbe
 
   const tradedSymbols = Array.from(new Set(trades.map(t => String(t.symbol || '').toUpperCase()).filter(Boolean)));
 
-  // Load multipliers for traded symbols (default 1)
-  const assetRows = db
-    .prepare('SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets')
-    .all() as TsmomAssetRow[];
+  // Load multipliers from portfolio_assets (portfolio universe metadata). Fallback: infer from ticker.
   const multMap = new Map<string, number>();
-  for (const a of assetRows) {
-    const { ticker, priceMultiplier } = resolveTicker(a);
-    multMap.set(String(ticker).toUpperCase(), Number(priceMultiplier || 1));
+  try {
+    const rows = db
+      .prepare('SELECT ticker, price_multiplier FROM portfolio_assets WHERE portfolio_id=?')
+      .all(portfolioId) as Array<{ ticker: string; price_multiplier: number }>;
+    for (const r of rows) {
+      const key = String(r.ticker || '').toUpperCase();
+      const pm = Number((r as any).price_multiplier);
+      if (key && Number.isFinite(pm) && pm > 0) multMap.set(key, pm);
+    }
+  } catch {
+    // ignore
   }
 
   const priceSeries: Record<string, CandleRow[]> = {};
   for (const s of tradedSymbols) {
-    const ser = applyMultiplier(loadCloseSeries(db, s), multMap.get(s) ?? 1).filter(r => r.ts >= (startMs - 10 * 24 * 60 * 60 * 1000));
+    const ser = applyMultiplier(loadCloseSeries(db, s), multMap.get(s) ?? inferMultiplierForTicker(s)).filter(
+      r => r.ts >= (startMs - 10 * 24 * 60 * 60 * 1000)
+    );
     priceSeries[s] = ser;
   }
 

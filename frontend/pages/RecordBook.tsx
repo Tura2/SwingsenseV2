@@ -88,6 +88,11 @@ export default function RecordBook() {
   const navigate = useNavigate();
   const q = useQuery();
 
+  const sandboxRunId = useMemo(() => {
+    const v = Number(q.get('sandboxRunId') || '');
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }, [q]);
+
   const api = (window as any).api as undefined | {
     getCandles?(symbol: string, range?: '1M' | '6M' | '1Y' | '5Y'): Promise<CandleRow[]>;
     getQuotes?(symbols: string[]): Promise<QuoteLite[]>;
@@ -100,6 +105,8 @@ export default function RecordBook() {
       listTrades(opts?: { portfolioId?: number; limit?: number; strategyTagPrefix?: string }): Promise<TradeRow[]>;
       listLedger(opts?: { portfolioId?: number; limit?: number }): Promise<LedgerRow[]>;
       updateTradeNotes?(payload: { tradeId: number; notes: string | null }): Promise<{ ok: true }>;
+
+      sandboxEaRecordBook?(opts: { runId: number }): Promise<{ run: any; trades: any[]; ledger: any[] }>;
     };
   };
 
@@ -119,6 +126,11 @@ export default function RecordBook() {
     const fromQ = Number(q.get('portfolioId') || '1');
     return Number.isFinite(fromQ) && fromQ > 0 ? fromQ : 1;
   });
+
+  const [sandboxRun, setSandboxRun] = useState<any | null>(null);
+  const [sandboxTrades, setSandboxTrades] = useState<TradeRow[]>([]);
+  const [sandboxLedger, setSandboxLedger] = useState<LedgerRow[]>([]);
+  const [sandboxLoading, setSandboxLoading] = useState(false);
 
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [trades, setTrades] = useState<TradeRow[]>([]);
@@ -194,21 +206,102 @@ export default function RecordBook() {
     }
   }
 
+  async function loadSandbox() {
+    if (!sandboxRunId) return;
+    setSandboxLoading(true);
+    try {
+      if (!tsmomApi.sandboxEaRecordBook) {
+        throw new Error('sandboxEaRecordBook API not available yet.');
+      }
+      const res = await tsmomApi.sandboxEaRecordBook({ runId: sandboxRunId });
+      setSandboxRun(res.run);
+      setSandboxTrades(
+        (res.trades || []).map((t: any) => ({
+          id: Number(t.id),
+          symbol: String(t.symbol),
+          side: (String(t.side).toUpperCase() === 'SELL' ? 'SELL' : 'BUY') as TradeRow['side'],
+          qty: Number(t.qty),
+          price: Number(t.price_base),
+          ts: Number(t.ts),
+          notional_base: Number(t.notional_base),
+          fee_base: Number(t.fee_base),
+          strategy_tag: t.strategy_tag ? String(t.strategy_tag) : null,
+          notes: null,
+          meta: t.meta ? String(t.meta) : null,
+        }))
+      );
+      setSandboxLedger(
+        (res.ledger || []).map((l: any) => ({
+          id: Number(l.id),
+          ts: Number(l.ts),
+          amount: Number(l.amount),
+          type: (String(l.type).toUpperCase() === 'WITHDRAWAL'
+            ? 'WITHDRAWAL'
+            : String(l.type).toUpperCase() === 'ADJUSTMENT'
+              ? 'ADJUSTMENT'
+              : 'DEPOSIT') as LedgerRow['type'],
+          description: l.description ? String(l.description) : null,
+        }))
+      );
+    } finally {
+      setSandboxLoading(false);
+    }
+  }
+
   useEffect(() => {
+    if (sandboxRunId) return;
     void loadPortfolios();
   }, []);
 
   useEffect(() => {
+    if (sandboxRunId) {
+      void loadSandbox();
+      const next = new URLSearchParams();
+      next.set('sandboxRunId', String(sandboxRunId));
+      navigate({ pathname: '/recordbook', search: `?${next.toString()}` }, { replace: true });
+      return;
+    }
+
     void loadAll();
     // keep URL in sync
     const next = new URLSearchParams();
     next.set('portfolioId', String(portfolioId));
     navigate({ pathname: '/recordbook', search: `?${next.toString()}` }, { replace: true });
-  }, [portfolioId, years]);
+  }, [portfolioId, years, sandboxRunId]);
 
   const baseCurrency: Currency = (snapshot?.baseCurrency || 'ILS') as Currency;
 
+  const sandboxBaseCurrency: Currency = useMemo(() => {
+    const c = String(sandboxRun?.base_currency || sandboxRun?.baseCurrency || 'ILS').toUpperCase();
+    return c === 'USD' ? 'USD' : 'ILS';
+  }, [sandboxRun]);
+
   const summary = useMemo(() => {
+    if (sandboxRunId) {
+      const totalFees = sandboxTrades.reduce((acc, t) => acc + (Number(t.fee_base) || 0), 0);
+      const firstTs = sandboxTrades.length ? Math.min(...sandboxTrades.map(t => Number(t.ts) || Infinity)) : null;
+      const lastTs = sandboxTrades.length ? Math.max(...sandboxTrades.map(t => Number(t.ts) || 0)) : null;
+      const deposits = sandboxLedger.filter(l => l.type === 'DEPOSIT').reduce((acc, l) => acc + (Number(l.amount) || 0), 0);
+      const withdrawals = sandboxLedger.filter(l => l.type === 'WITHDRAWAL').reduce((acc, l) => acc + (Number(l.amount) || 0), 0);
+      const adjustments = sandboxLedger.filter(l => l.type === 'ADJUSTMENT').reduce((acc, l) => acc + (Number(l.amount) || 0), 0);
+      const netContributions = deposits + withdrawals + adjustments;
+      return {
+        totalFees,
+        buyNotional: sandboxTrades.filter(t => t.side === 'BUY').reduce((acc, t) => acc + (Number(t.notional_base) || 0), 0),
+        sellNotional: sandboxTrades.filter(t => t.side === 'SELL').reduce((acc, t) => acc + (Number(t.notional_base) || 0), 0),
+        firstTs,
+        lastTs,
+        holdings: 0,
+        cash: 0,
+        equity: 0,
+        tradesCount: sandboxTrades.length,
+        deposits,
+        withdrawals,
+        adjustments,
+        netContributions,
+      };
+    }
+
     const totalFees = trades.reduce((acc, t) => acc + (Number(t.fee_base) || 0), 0);
     const buys = trades.filter(t => t.side === 'BUY');
     const sells = trades.filter(t => t.side === 'SELL');
@@ -246,16 +339,19 @@ export default function RecordBook() {
       adjustments,
       netContributions,
     };
-  }, [trades, ledger, snapshot]);
+  }, [trades, ledger, snapshot, sandboxTrades, sandboxLedger, sandboxRunId]);
 
   const recordBookRows: RecordBookRow[] = useMemo(() => {
+    const useTrades = sandboxRunId ? sandboxTrades : trades;
+    const useLedger = sandboxRunId ? sandboxLedger : ledger;
+
     const out: RecordBookRow[] = [];
-    for (const t of trades) out.push({ kind: 'trade', ts: Number(t.ts), trade: t });
-    for (const l of ledger) out.push({ kind: 'ledger', ts: Number(l.ts), ledger: l });
+    for (const t of useTrades) out.push({ kind: 'trade', ts: Number(t.ts), trade: t });
+    for (const l of useLedger) out.push({ kind: 'ledger', ts: Number(l.ts), ledger: l });
     return out
       .filter(r => Number.isFinite(r.ts) && r.ts > 0)
       .sort((a, b) => b.ts - a.ts);
-  }, [trades, ledger]);
+  }, [trades, ledger, sandboxTrades, sandboxLedger, sandboxRunId]);
 
   const chartSeries: LineSeriesSpec[] = useMemo(() => {
     const out: LineSeriesSpec[] = [];
@@ -310,6 +406,7 @@ export default function RecordBook() {
 
   async function saveNotes() {
     if (!editTrade) return;
+    if (sandboxRunId) return;
     const tradeId = Number(editTrade.id);
     const notes = editText.trim();
     setSavingNote(true);
@@ -326,6 +423,120 @@ export default function RecordBook() {
     } finally {
       setSavingNote(false);
     }
+  }
+
+  if (sandboxRunId) {
+    const base = sandboxBaseCurrency;
+    return (
+      <div className="stack wealth">
+        <div className="wealth-header">
+          <div>
+            <h2 className="wealth-title">Record Book</h2>
+            <div className="wealth-subtitle">
+              <span className="pill">Sandbox run #{sandboxRunId}</span>
+              <span className="pill">Base: {base}</span>
+              <span className="pill">Trades: {summary.tradesCount}</span>
+            </div>
+          </div>
+
+          <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="ghost" onClick={() => navigate('/tsmom')}>Back to Sandbox</button>
+            <button className="ghost" onClick={loadSandbox} disabled={sandboxLoading}>
+              {sandboxLoading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+
+        <div className="wealth-stats">
+          <div className="card stat-card">
+            <div className="stat-label">Net Contributions</div>
+            <div className="stat-value">{format2(summary.netContributions)} <span className="stat-ccy">{base}</span></div>
+          </div>
+          <div className="card stat-card">
+            <div className="stat-label">Total Fees</div>
+            <div className="stat-value">{format2(summary.totalFees)} <span className="stat-ccy">{base}</span></div>
+          </div>
+          <div className="card stat-card">
+            <div className="stat-label">Start</div>
+            <div className="stat-value">{sandboxRun?.start_ts ? new Date(Number(sandboxRun.start_ts)).toLocaleDateString() : '—'}</div>
+          </div>
+          <div className="card stat-card">
+            <div className="stat-label">Valuation</div>
+            <div className="stat-value">{sandboxRun?.valuation_ts ? new Date(Number(sandboxRun.valuation_ts)).toLocaleDateString() : '—'}</div>
+          </div>
+        </div>
+
+        <div className="card wealth-card">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0 }}>Trade Record Book</h3>
+            <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+              Sandbox-only; does not affect Wealth.
+            </div>
+          </div>
+
+          <div className="tableWrap" style={{ marginTop: 12 }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Symbol</th>
+                  <th>Side</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Price ({base})</th>
+                  <th className="num">Notional ({base})</th>
+                  <th className="num">Fee ({base})</th>
+                  <th>Strategy</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!recordBookRows.length && (
+                  <tr>
+                    <td colSpan={9} style={{ color: '#9aa4b2' }}>No record book rows.</td>
+                  </tr>
+                )}
+                {recordBookRows.map(r => {
+                  if (r.kind === 'trade') {
+                    const t = r.trade;
+                    const fee = Number.isFinite(Number(t.fee_base)) ? Number(t.fee_base) : null;
+                    return (
+                      <tr key={`t-${t.id}`}>
+                        <td className="mono">{formatDateTime(t.ts)}</td>
+                        <td>{t.symbol}</td>
+                        <td><span className={`badge ${t.side === 'BUY' ? 'buy' : 'sell'}`}>{t.side}</span></td>
+                        <td className="num mono">{format2(t.qty)}</td>
+                        <td className="num mono">{format2(t.price)}</td>
+                        <td className="num mono">{format2(t.notional_base)}</td>
+                        <td className="num mono">{format2(fee)}</td>
+                        <td className="mono">{t.strategy_tag || '—'}</td>
+                        <td className="mono">—</td>
+                      </tr>
+                    );
+                  }
+
+                  const l = r.ledger;
+                  const type = l.type;
+                  const badgeClass = type === 'DEPOSIT' ? 'buy' : type === 'WITHDRAWAL' ? 'sell' : '';
+                  return (
+                    <tr key={`l-${l.id}`}>
+                      <td className="mono">{formatDateTime(l.ts)}</td>
+                      <td className="mono">CASH</td>
+                      <td><span className={`badge ${badgeClass}`}>{type}</span></td>
+                      <td className="num mono">—</td>
+                      <td className="num mono">—</td>
+                      <td className="num mono">{format2(l.amount)}</td>
+                      <td className="num mono">—</td>
+                      <td className="mono">—</td>
+                      <td className="mono">{l.description || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

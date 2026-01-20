@@ -13,6 +13,7 @@ import { runTickerBacktest, getLatestForTicker } from './services/backtest/backt
 import { computeTsmomSignalMatrix, computeTsmomTurboV2Plan } from './services/tsmom/planner.js';
 import { computeTsmomPerformanceSeries } from './services/tsmom/performance.js';
 import { runTsmomSandbox } from './services/tsmom/sandbox.js';
+import { runEaPortfolioSandboxBacktest } from './services/tsmom/eaSandboxBacktest.js';
 import { applyLedgerToState, applyTradesToState, getDefaultPortfolioId, rebuildPortfolioStateFromHistory } from './services/wealth/portfolioState.js';
 import { computePortfolioSnapshot, getPortfolioBaseCurrency } from './services/wealth/portfolioSnapshot.js';
 import { resolveCanonicalYahooSymbol } from './services/symbols.js';
@@ -652,53 +653,40 @@ export function registerIpcHandlers() {
   ipcMain.handle('tsmom:get-universe', async (_e, params: any) => {
     const P = z.object({ portfolioId: z.number().int().positive().optional() });
     const p = P.parse(params || {});
-    const pid = p.portfolioId != null ? Number(p.portfolioId) : null;
+    const pid = Number(p.portfolioId ?? getDefaultPortfolioId());
 
-    // Portfolio-scoped universe (when requested)
-    if (pid) {
-      let mode: 'default' | 'custom' = 'default';
-      try {
-        const row = db.prepare('SELECT universe_mode as mode FROM portfolio_states WHERE portfolio_id=?').get(pid) as any;
-        const m = String(row?.mode || 'default').toLowerCase();
-        mode = m === 'custom' ? 'custom' : 'default';
-      } catch {
-        mode = 'default';
-      }
-
-      if (mode === 'custom') {
-        const cacheKey = `tsmom:universe:p:${pid}`;
-        const cached = persistentCacheGet<any[]>(cacheKey);
-        if (cached) return cached;
-
-        const rows = db.prepare(
-          `SELECT u.ticker as ticker,
-                  COALESCE(pa.name, a.name) as name,
-                  COALESCE(pa.category, a.category) as category,
-                  'active' as status,
-                  COALESCE(pa.yahoo_symbol, a.yahoo_symbol) as yahoo_symbol,
-                  COALESCE(pa.price_multiplier, a.price_multiplier, 1) as price_multiplier,
-                  COALESCE(pa.created_at, a.created_at, u.created_at) as created_at,
-                  COALESCE(pa.updated_at, a.updated_at, u.created_at) as updated_at,
-                  COALESCE(pa.meta, a.meta) as meta
-           FROM portfolio_universe u
-           LEFT JOIN portfolio_assets pa ON pa.portfolio_id=u.portfolio_id AND pa.ticker=u.ticker
-           LEFT JOIN assets a ON a.ticker=u.ticker
-           WHERE u.portfolio_id=?
-           ORDER BY category, ticker`
-        ).all(pid);
-
-        persistentCacheSet(cacheKey, rows);
-        return rows;
-      }
-    }
-
-    // Default: global seeded assets universe
-    const cacheKey = 'tsmom:universe:global';
+    const cacheKey = `tsmom:universe:p:${pid}`;
     const cached = persistentCacheGet<any[]>(cacheKey);
     if (cached) return cached;
+
+    // TSMOM universe is now strictly portfolio-based.
+    // We do not use the legacy global `assets` table for calculations.
+    try {
+      db.prepare("UPDATE portfolio_states SET universe_mode='custom' WHERE portfolio_id=?").run(pid);
+    } catch {
+      // ignore
+    }
+
     const rows = db
-      .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets ORDER BY category, ticker")
-      .all();
+      .prepare(
+        `SELECT u.ticker as ticker,
+                pa.name as name,
+                pa.category as category,
+                'active' as status,
+                pa.yahoo_symbol as yahoo_symbol,
+                COALESCE(pa.price_multiplier,
+                  CASE WHEN UPPER(u.ticker) LIKE '%.TA' THEN 0.01 ELSE 1 END
+                ) as price_multiplier,
+                COALESCE(pa.created_at, u.created_at) as created_at,
+                COALESCE(pa.updated_at, u.created_at) as updated_at,
+                pa.meta as meta
+         FROM portfolio_universe u
+         LEFT JOIN portfolio_assets pa ON pa.portfolio_id=u.portfolio_id AND pa.ticker=u.ticker
+         WHERE u.portfolio_id=?
+         ORDER BY category, ticker`
+      )
+      .all(pid);
+
     persistentCacheSet(cacheKey, rows);
     return rows;
   });
@@ -777,6 +765,66 @@ export function registerIpcHandlers() {
       out.push({ label: r.label, ...res });
     }
     return { benchmark: p.benchmark ?? null, years: p.years ?? 5, results: out };
+  });
+
+  // --- TSMOM sandbox: EA portfolio backtest (isolated; does NOT touch wealth tables) ---
+  ipcMain.handle('tsmom:sandbox-ea-run', async (_e, params: any) => {
+    const P = z.object({
+      portfolioId: z.number().int().positive(),
+      tickers: z.array(z.string().trim().toUpperCase().min(1).max(40)).min(1).max(500),
+      yearsBack: z.number().int().positive().max(10).optional(),
+      startCapital: z.number().positive().max(1e9),
+      benchmark: z.string().trim().max(40).optional().nullable(),
+      params: z.object({
+        lookbackTradingDays: z.number().int().positive().max(2000).optional(),
+        skipRecentTradingDays: z.number().int().min(0).max(365).optional(),
+        volCenterDaysCOM: z.number().int().positive().max(365).optional(),
+        targetVolAnn: z.number().positive().max(5).optional(),
+        topK: z.number().int().positive().max(50).optional(),
+        maxLeverage: z.number().positive().max(50).optional(),
+        commissionBase: z.number().min(0).max(500).optional(),
+        rebalanceEveryTradingDays: z.number().int().positive().max(90).optional(),
+      }).optional(),
+    });
+
+    const p = P.parse(params || {});
+    return await runEaPortfolioSandboxBacktest({
+      portfolioId: p.portfolioId,
+      tickers: p.tickers,
+      yearsBack: p.yearsBack,
+      startCapital: p.startCapital,
+      benchmark: p.benchmark ?? null,
+      params: p.params,
+    });
+  });
+
+  ipcMain.handle('tsmom:sandbox-ea-recordbook', async (_e, params: any) => {
+    const P = z.object({ runId: z.number().int().positive() });
+    const p = P.parse(params || {});
+    const run = db.prepare(`
+      SELECT id, portfolio_id, created_at, start_ts, end_ts, valuation_ts, base_currency, start_capital_base, params_json, meta
+      FROM tsmom_sandbox_runs
+      WHERE id=?
+    `).get(p.runId);
+    if (!run) throw new Error('Sandbox run not found');
+
+    const trades = db.prepare(`
+      SELECT id, ts, symbol, side, qty, price_base, notional_base, fee_base, strategy_tag, meta
+      FROM tsmom_sandbox_trades
+      WHERE run_id=?
+      ORDER BY ts DESC, id DESC
+      LIMIT 5000
+    `).all(p.runId);
+
+    const ledger = db.prepare(`
+      SELECT id, ts, amount, type, description, meta
+      FROM tsmom_sandbox_ledger
+      WHERE run_id=?
+      ORDER BY ts DESC, id DESC
+      LIMIT 5000
+    `).all(p.runId);
+
+    return { run, trades, ledger };
   });
 
   ipcMain.handle('tsmom:execute-trades', async (_e, params: any) => {

@@ -24,6 +24,9 @@ export async function initDB(dbPath: string) {
   DROP TABLE IF EXISTS bt_trades;
   DROP TABLE IF EXISTS bt_runs;
 
+  -- Legacy TSMOM global universe (replaced by portfolio_universe + portfolio_assets)
+  DROP TABLE IF EXISTS assets;
+
   CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -64,7 +67,7 @@ export async function initDB(dbPath: string) {
     PRIMARY KEY (portfolio_id, ticker)
   );
 
-  -- Portfolio-scoped asset metadata (keeps custom universes separate from the global seeded assets table)
+  -- Portfolio-scoped asset metadata (universe + metadata is now always portfolio-based)
   CREATE TABLE IF NOT EXISTS portfolio_assets (
     portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
     ticker TEXT NOT NULL,
@@ -108,20 +111,6 @@ export async function initDB(dbPath: string) {
 
   CREATE INDEX IF NOT EXISTS idx_portfolio_trades_ts ON portfolio_trades(ts);
 
-  -- TSMOM Command Center
-  CREATE TABLE IF NOT EXISTS assets (
-    ticker TEXT PRIMARY KEY,
-    name TEXT,
-    category TEXT,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
-    yahoo_symbol TEXT,
-    price_multiplier REAL NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    meta TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_assets_status ON assets(status);
-
   CREATE TABLE IF NOT EXISTS capital_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     portfolio_id INTEGER NOT NULL DEFAULT 1,
@@ -134,6 +123,47 @@ export async function initDB(dbPath: string) {
     meta TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_capital_ledger_ts ON capital_ledger(ts);
+
+  -- TSMOM sandbox backtests (isolated from Wealth / portfolio tables)
+  CREATE TABLE IF NOT EXISTS tsmom_sandbox_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    start_ts INTEGER NOT NULL,
+    end_ts INTEGER NOT NULL,
+    valuation_ts INTEGER NOT NULL,
+    base_currency TEXT NOT NULL DEFAULT 'ILS' CHECK (base_currency IN ('USD','ILS')),
+    start_capital_base REAL NOT NULL,
+    params_json TEXT,
+    meta TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_tsmom_sandbox_runs_created_at ON tsmom_sandbox_runs(created_at);
+
+  CREATE TABLE IF NOT EXISTS tsmom_sandbox_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES tsmom_sandbox_runs(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL CHECK (side IN ('BUY','SELL')),
+    qty REAL NOT NULL,
+    price_base REAL NOT NULL,
+    notional_base REAL,
+    fee_base REAL,
+    strategy_tag TEXT,
+    meta TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_tsmom_sandbox_trades_run_ts ON tsmom_sandbox_trades(run_id, ts);
+
+  CREATE TABLE IF NOT EXISTS tsmom_sandbox_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES tsmom_sandbox_runs(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('DEPOSIT','WITHDRAWAL','ADJUSTMENT')),
+    description TEXT,
+    meta TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_tsmom_sandbox_ledger_run_ts ON tsmom_sandbox_ledger(run_id, ts);
 
   CREATE TABLE IF NOT EXISTS portfolio_nav_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

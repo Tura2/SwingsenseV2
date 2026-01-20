@@ -47,16 +47,22 @@ export type SeedOptions = {
   jsonPathCandidates: string[];
 };
 
-export function ensureAssetsSeededFromExpandedUniverseJson(opts: SeedOptions): { seeded: boolean; usedPath: string | null; count: number } {
+export function ensurePortfolioUniverseSeededFromExpandedUniverseJson(
+  opts: SeedOptions & { portfolioId?: number }
+): { seeded: boolean; usedPath: string | null; count: number } {
   const { db } = opts;
+  const portfolioId = Number(opts.portfolioId ?? 1);
 
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)');
 
-  const seededMeta = db.prepare('SELECT value FROM meta WHERE key=?').get('tsmom_assets_seeded') as { value?: string } | undefined;
+  const metaKey = `tsmom_portfolio_universe_seeded:p${portfolioId}`;
+  const seededMeta = db.prepare('SELECT value FROM meta WHERE key=?').get(metaKey) as { value?: string } | undefined;
   const alreadySeeded = seededMeta?.value === '1';
 
-  const countRow = db.prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number };
-  if (alreadySeeded && countRow.c > 0) return { seeded: false, usedPath: null, count: countRow.c };
+  const countRow = db
+    .prepare('SELECT COUNT(*) AS c FROM portfolio_universe WHERE portfolio_id=?')
+    .get(portfolioId) as { c: number };
+  if ((alreadySeeded && countRow.c > 0) || countRow.c > 0) return { seeded: false, usedPath: null, count: countRow.c };
 
   let usedPath: string | null = null;
   let cfg: any = null;
@@ -76,18 +82,36 @@ export function ensureAssetsSeededFromExpandedUniverseJson(opts: SeedOptions): {
   const now = Date.now();
   const rows = flattenExpandedUniverse(cfg);
 
-  const ins = db.prepare(`
-    INSERT OR REPLACE INTO assets(ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta)
-    VALUES(@ticker, @name, @category, @status, @yahoo_symbol, @price_multiplier, @created_at, @updated_at, @meta)
+  const insU = db.prepare(`
+    INSERT OR IGNORE INTO portfolio_universe(portfolio_id, ticker, created_at)
+    VALUES(@portfolio_id, @ticker, @created_at)
+  `);
+
+  const insA = db.prepare(`
+    INSERT OR REPLACE INTO portfolio_assets(
+      portfolio_id, ticker, name, category, yahoo_symbol, price_multiplier, created_at, updated_at, meta
+    )
+    VALUES(
+      @portfolio_id, @ticker, @name, @category, @yahoo_symbol, @price_multiplier, @created_at, @updated_at, @meta
+    )
   `);
 
   const trx = db.transaction((arr: typeof rows) => {
     for (const r of arr) {
-      ins.run({
-        ticker: r.ticker,
+      const t = String(r.ticker || '').trim();
+      if (!t) continue;
+
+      insU.run({
+        portfolio_id: portfolioId,
+        ticker: t,
+        created_at: now,
+      });
+
+      insA.run({
+        portfolio_id: portfolioId,
+        ticker: t,
         name: r.name,
         category: r.category,
-        status: 'active',
         yahoo_symbol: r.yahooSymbol,
         price_multiplier: inferMultiplier(r.yahooSymbol, cfg),
         created_at: now,
@@ -95,11 +119,13 @@ export function ensureAssetsSeededFromExpandedUniverseJson(opts: SeedOptions): {
         meta: null,
       });
     }
-    db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run('tsmom_assets_seeded', '1');
+    db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(metaKey, '1');
   });
 
   trx(rows);
 
-  const after = db.prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number };
+  const after = db
+    .prepare('SELECT COUNT(*) AS c FROM portfolio_universe WHERE portfolio_id=?')
+    .get(portfolioId) as { c: number };
   return { seeded: true, usedPath, count: after.c };
 }

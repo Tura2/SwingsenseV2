@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import EquityChart from "../components/EquityChart";
-import type { Candle } from "@shared/types";
+import { useNavigate } from "react-router-dom";
+
+type Currency = "USD" | "ILS";
+
+type PortfolioRow = {
+  id: number;
+  name: string;
+  base_currency: Currency;
+};
 
 type AssetRow = {
   ticker: string;
@@ -11,256 +18,397 @@ type AssetRow = {
   price_multiplier: number;
 };
 
-type PlanItem = {
-  ticker: string;
-  name: string | null;
-  category: string | null;
-  price: number | null;
-  momentum: number | null;
-  sigmaAnn: number | null;
-  targetWeight: number;
-  targetQty: number;
-  currentQty: number;
-  deltaQty: number;
-  action: "BUY" | "SELL" | "HOLD";
+type EaSandboxSummary = {
+  valuationDate: string;
+  startDate: string;
+  endDate: string;
+  yearsBack: number;
+
+  finalEquityTurbo: number;
+  totalCommissionsTurbo: number;
+
+  finalEquityBuyHold: number;
+  totalCommissionsBuyHold: number;
+
+  universeSize: number;
+  universeUsed: number;
+  tradesTurbo: number;
 };
 
-type RebalancePlan = {
-  asOf: string;
-  baseCurrency?: 'USD' | 'ILS';
-  params: {
-    lookbackTradingDays: number;
-    skipRecentTradingDays: number;
-    volCenterDaysCOM: number;
-    targetVolAnn: number;
-    topK: number;
-    maxLeverage: number;
-    commissionNIS: number;
-  };
-  equityNIS: number;
-  cashNIS: number;
-  holdingsValueNIS: number;
-  items: PlanItem[];
-  warnings: string[];
-  raw?: any;
-};
-
-type SignalMatrixRow = {
-  ticker: string;
-  name: string | null;
-  category: string | null;
-  status: "active" | "inactive";
-  price: number | null;
-  momentum: number | null;
-  sigmaAnn: number | null;
-  rank: number | null;
-  isTopK: boolean;
-
-  candles1dTotal?: number;
-  closes1dValid?: number;
-  requiredClosesForMomentum?: number;
-};
-
-type SignalMatrix = {
-  asOf: string;
-  params: {
-    lookbackTradingDays: number;
-    skipRecentTradingDays: number;
-    volCenterDaysCOM: number;
-    topK: number;
-  };
-  rows: SignalMatrixRow[];
-};
-
-type PerformancePoint = { ts: number; equity: number; bench_equity: number };
-
-type SandboxResult = {
-  asOf: string;
-  benchmark: string | null;
+type EaSandboxRunResult = {
+  runId: number;
+  portfolioId: number;
+  baseCurrency: Currency;
   params: any;
-  summary: {
-    start: string;
-    end: string;
-    years: number;
-    cagr: number | null;
-    volAnn: number | null;
-    sharpe: number | null;
-    maxDrawdown: number | null;
-    benchCagr: number | null;
-  };
-  points: PerformancePoint[];
+  summary: EaSandboxSummary;
   warnings: string[];
 };
 
-type LedgerRow = {
-  id: number;
-  ts: number;
-  amount: number;
-  type: "DEPOSIT" | "WITHDRAWAL" | "ADJUSTMENT";
-  description: string | null;
-  meta: string | null;
-};
+function format2(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  return Number(v).toFixed(2);
+}
 
-type TradeRow = {
-  id: number;
-  symbol: string;
-  side: "BUY" | "SELL";
-  qty: number;
-  price: number;
-  ts: number;
-  fee?: number | null;
-  fee_base?: number | null;
-  strategy_tag?: string | null;
-  notes?: string | null;
-  meta?: string | null;
-};
-
-type SyncRunRow = {
-  id: number;
-  started_at: number;
-  finished_at: number | null;
-  assets: number;
-  updated: number;
-  status: "running" | "completed" | "failed";
-  warnings: string | null;
-};
-
-type PriceFlagRow = {
-  id: number;
-  ticker: string;
-  ts: number;
-  type: string;
-  severity: "info" | "warn" | "error";
-  message: string;
-  move_pct: number | null;
-  prev_close: number | null;
-  close: number | null;
-  acknowledged_at: number | null;
-  meta: string | null;
-};
+function normalizeTicker(raw: string) {
+  return String(raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+}
 
 export default function TsmomCommandCenter() {
-  const api = (window as any).api as undefined | {
-    getCandles(symbol: string, range?: "1M" | "6M" | "1Y" | "5Y"): Promise<Candle[]>;
+  const navigate = useNavigate();
 
-    tsmom: {
-      getUniverse(opts?: { portfolioId?: number }): Promise<AssetRow[]>;
-      computePlan(opts?: { portfolioId?: number }): Promise<RebalancePlan>;
-      getSignalMatrix(opts?: { portfolioId?: number }): Promise<SignalMatrix>;
-      getPerformance(opts?: { portfolioId?: number; years?: number; benchmark?: string | null }): Promise<{ benchmark: string | null; points: PerformancePoint[] }>;
-      sandboxRun(opts?: { years?: number; benchmark?: string | null; params?: any }): Promise<SandboxResult>;
-      sandboxCompare(opts: { years?: number; benchmark?: string | null; runs: Array<{ label: string; params: any }> }): Promise<any>;
-      executeTrades(payload: any): Promise<{ ok: true }>;
-      listLedger(opts?: { portfolioId?: number; limit?: number }): Promise<LedgerRow[]>;
-      addLedgerEntry(payload: any): Promise<{ id: number; ts: number }>;
-      deleteLedgerEntry(id: number): Promise<{ ok: true }>;
-      listTrades(opts?: { portfolioId?: number; limit?: number; strategyTagPrefix?: string }): Promise<TradeRow[]>;
-
-      getSyncStatus(): Promise<{ lastRun: SyncRunRow | null; openFlags: number }>;
-      listSyncRuns(opts?: { limit?: number }): Promise<SyncRunRow[]>;
-      listPriceFlags(opts?: { limit?: number; onlyUnacknowledged?: boolean; types?: string[]; ticker?: string }): Promise<PriceFlagRow[]>;
-      ackPriceFlag(id: number): Promise<{ ok: true }>;
-
-      applyCorporateAction(flagId: number): Promise<{ ok: true; ticker: string; factor: number; cutoffTs: number; updatedCandles: number }>;
-    };
-
-    portfolios?: {
-      list(): Promise<Array<{ id: number; name: string; base_currency: 'USD'|'ILS'; strategy_ref: string | null; created_at: number; meta: string | null }>>;
-      create(payload: { name: string; baseCurrency?: 'USD'|'ILS'; strategyRef?: string; meta?: any }): Promise<any>;
-      update(payload: any): Promise<{ ok: true }>;
-      delete(id: number): Promise<{ ok: true }>;
-      getSnapshot(opts?: { portfolioId?: number }): Promise<{ portfolioId: number; baseCurrency: 'USD'|'ILS'; cashBase: number; holdingsValueBase: number; navBase: number; positions: any[]; warnings: string[] }>;
-      universe: {
-        list(opts?: { portfolioId?: number }): Promise<string[]>;
-        addTicker(payload: { portfolioId?: number; ticker: string }): Promise<{ ok: true }>;
-        removeTicker(payload: { portfolioId?: number; ticker: string }): Promise<{ ok: true }>;
+  const api = (window as any).api as
+    | undefined
+    | {
+        tsmom?: {
+          getUniverse(opts?: { portfolioId?: number }): Promise<AssetRow[]>;
+          sandboxEaRun?(opts: {
+            portfolioId: number;
+            tickers: string[];
+            yearsBack?: number;
+            startCapital: number;
+            benchmark?: string | null;
+            params?: any;
+          }): Promise<EaSandboxRunResult>;
+        };
+        portfolios?: {
+          list(): Promise<Array<{ id: number; name: string; base_currency: Currency }>>;
+        };
       };
-    };
-  };
 
-  if (!api) {
+  if (!api?.portfolios || !api?.tsmom) {
     return (
       <div className="card" style={{ borderColor: "#733", color: "#ffb3b3" }}>
-        Electron bridge unavailable. Please run this app via the Electron desktop window, not a normal browser.
+        Electron bridge unavailable. Please run this app via the Electron desktop window.
       </div>
     );
   }
 
-  // From here on, the Electron bridge is available.
-  const tsmom = api.tsmom;
   const portfoliosApi = api.portfolios;
+  const tsmomApi = api.tsmom;
 
-  const [portfolios, setPortfolios] = useState<Array<{ id: number; name: string; base_currency: 'USD'|'ILS' }>>([]);
+  const [portfolios, setPortfolios] = useState<PortfolioRow[]>([]);
   const [portfolioId, setPortfolioId] = useState<number>(() => {
-    const v = Number(localStorage.getItem('tsmom.portfolioId') || '1');
+    const v = Number(localStorage.getItem("tsmom.sandbox.portfolioId") || "1");
     return Number.isFinite(v) && v > 0 ? v : 1;
   });
-  const [usdIls, setUsdIls] = useState<number | null>(null);
-
-  const [portfolioUniverse, setPortfolioUniverse] = useState<string[]>([]);
-  const [newUniverseTicker, setNewUniverseTicker] = useState('');
 
   const [universe, setUniverse] = useState<AssetRow[]>([]);
-  const [plan, setPlan] = useState<RebalancePlan | null>(null);
   const [loadingUniverse, setLoadingUniverse] = useState(false);
-  const [loadingPlan, setLoadingPlan] = useState(false);
+  const [universeCollapsed, setUniverseCollapsed] = useState<boolean>(true);
 
-  const [ledger, setLedger] = useState<LedgerRow[]>([]);
-  const [loadingLedger, setLoadingLedger] = useState(false);
+  const [startCapital, setStartCapital] = useState<number>(50_000);
+  const yearsBack = 5;
 
-  const [trades, setTrades] = useState<TradeRow[]>([]);
-  const [loadingTrades, setLoadingTrades] = useState(false);
+  const [lookbackTradingDays, setLookbackTradingDays] = useState(63);
+  const [skipRecentTradingDays, setSkipRecentTradingDays] = useState(10);
+  const [volCenterDaysCOM, setVolCenterDaysCOM] = useState(20);
+  const [targetVolAnn, setTargetVolAnn] = useState(0.9);
+  const [topK, setTopK] = useState(5);
+  const [maxLeverage, setMaxLeverage] = useState(1);
+  const [commissionBase, setCommissionBase] = useState(5);
+  const [rebalanceEveryTradingDays, setRebalanceEveryTradingDays] = useState(21);
 
-  const [cashType, setCashType] = useState<LedgerRow["type"]>("DEPOSIT");
-  const [cashAmount, setCashAmount] = useState<number>(50000);
-  const [cashDesc, setCashDesc] = useState<string>("Initial deposit");
+  const [runLoading, setRunLoading] = useState(false);
+  const [runErr, setRunErr] = useState<string | null>(null);
+  const [run, setRun] = useState<EaSandboxRunResult | null>(null);
 
-  const [includeExecCashFlow, setIncludeExecCashFlow] = useState(false);
-  const [execCashType, setExecCashType] = useState<LedgerRow["type"]>("DEPOSIT");
-  const [execCashAmount, setExecCashAmount] = useState<number>(0);
-  const [execCashDesc, setExecCashDesc] = useState<string>("Rebalance cash flow");
+  const selectedPortfolio = useMemo(() => portfolios.find(p => p.id === portfolioId) || null, [portfolios, portfolioId]);
 
-  const [syncStatus, setSyncStatus] = useState<{ lastRun: SyncRunRow | null; openFlags: number } | null>(null);
-  const [syncRuns, setSyncRuns] = useState<SyncRunRow[]>([]);
-  const [priceFlags, setPriceFlags] = useState<PriceFlagRow[]>([]);
-  const [loadingSync, setLoadingSync] = useState(false);
+  const universeTickers = useMemo(() => {
+    return (universe || [])
+      .filter(a => String(a.status || "active") !== "inactive")
+      .map(a => normalizeTicker(a.ticker))
+      .filter(Boolean);
+  }, [universe]);
 
-  const [signalMatrix, setSignalMatrix] = useState<SignalMatrix | null>(null);
-  const [loadingMatrix, setLoadingMatrix] = useState(false);
-  const [matrixFilter, setMatrixFilter] = useState('');
-
-  const [perf, setPerf] = useState<{ benchmark: string | null; points: PerformancePoint[] } | null>(null);
-  const [loadingPerf, setLoadingPerf] = useState(false);
-
-  const [sbYears, setSbYears] = useState(5);
-  const [sbTargetVol, setSbTargetVol] = useState(0.9);
-  const [sbTopK, setSbTopK] = useState(5);
-  const [sbLookback, setSbLookback] = useState(63);
-  const [sbSkip, setSbSkip] = useState(10);
-  const [sbCom, setSbCom] = useState(20);
-  const [sbMaxLev, setSbMaxLev] = useState(1);
-  const [sbCommission, setSbCommission] = useState(5);
-  const [sbResult, setSbResult] = useState<SandboxResult | null>(null);
-  const [sbLoading, setSbLoading] = useState(false);
-  const [sbCompare, setSbCompare] = useState<Array<{ label: string; res: SandboxResult }>>([]);
-
-  const [confirmExecuted, setConfirmExecuted] = useState(false);
-  const [notes, setNotes] = useState("TSMOM Turbo v2 rebalance");
-  const [commissionNIS, setCommissionNIS] = useState(5);
-
-  const [fillPrices, setFillPrices] = useState<Record<string, number>>({});
-  const [fillQtys, setFillQtys] = useState<Record<string, number>>({});
-  const [fillCostBase, setFillCostBase] = useState<Record<string, number>>({});
-  const [fillFxRates, setFillFxRates] = useState<Record<string, number>>({});
+  async function loadPortfolios() {
+    const rows = await portfoliosApi.list();
+    const list = (rows || []).map((p: any) => ({
+      id: Number(p.id),
+      name: String(p.name),
+      base_currency: (String(p.base_currency || "ILS").toUpperCase() === "USD" ? "USD" : "ILS") as Currency,
+    }));
+    setPortfolios(list);
+    if (list.length && !list.some(p => p.id === portfolioId)) setPortfolioId(list[0].id);
+  }
 
   async function loadUniverse() {
     setLoadingUniverse(true);
     try {
-      setUniverse(await tsmom.getUniverse({ portfolioId }));
+      setUniverse(await tsmomApi.getUniverse({ portfolioId }));
     } finally {
       setLoadingUniverse(false);
     }
   }
+
+  async function runBacktest() {
+    setRunErr(null);
+    setRunLoading(true);
+    try {
+      if (!tsmomApi.sandboxEaRun) throw new Error("sandboxEaRun API not available yet.");
+      const cap = Number(startCapital);
+      if (!Number.isFinite(cap) || cap <= 0) throw new Error("Start capital must be > 0.");
+
+      const res = await tsmomApi.sandboxEaRun({
+        portfolioId,
+        tickers: universeTickers,
+        yearsBack,
+        startCapital: cap,
+        benchmark: null,
+        params: {
+          lookbackTradingDays,
+          skipRecentTradingDays,
+          volCenterDaysCOM,
+          targetVolAnn,
+          topK,
+          maxLeverage,
+          commissionBase,
+          rebalanceEveryTradingDays,
+        },
+      });
+      setRun(res);
+    } catch (e: any) {
+      setRunErr(String(e?.message || e));
+      setRun(null);
+    } finally {
+      setRunLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPortfolios();
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("tsmom.sandbox.portfolioId", String(portfolioId));
+    void loadUniverse();
+    setRun(null);
+    setRunErr(null);
+  }, [portfolioId]);
+
+  const baseCurrency: Currency = (run?.baseCurrency || selectedPortfolio?.base_currency || "ILS") as Currency;
+
+  return (
+    <div className="stack wealth">
+      <div className="wealth-header">
+        <div>
+          <h2 className="wealth-title">TSMOM Sandbox</h2>
+          <div className="wealth-subtitle">
+            <span className="pill">EA portfolio what-if backtest</span>
+            <span className="pill">5Y</span>
+            <span className="pill">No impact on Wealth</span>
+          </div>
+        </div>
+
+        <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="ghost" onClick={() => navigate("/wealth")}>Wealth</button>
+          <button
+            className="ghost"
+            disabled={!run}
+            onClick={() => {
+              if (!run) return;
+              navigate(`/recordbook?sandboxRunId=${run.runId}`);
+            }}
+            title={run ? "Open sandbox record book" : "Run a sandbox backtest first"}
+          >
+            Open Record Book
+          </button>
+        </div>
+      </div>
+
+      <div className="card wealth-card">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>Sandbox Setup</h3>
+          <div style={{ color: "var(--muted)", fontSize: 13 }}>
+            Portfolio + params → run isolated backtest
+          </div>
+        </div>
+
+        <div className="row" style={{ gap: 12, flexWrap: "wrap", marginTop: 12, alignItems: "end" }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Portfolio</div>
+            <select value={portfolioId} onChange={e => setPortfolioId(Number(e.target.value))}>
+              {portfolios.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} (base {p.base_currency})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Start deposit ({selectedPortfolio?.base_currency || "ILS"})</div>
+            <input
+              type="number"
+              value={String(startCapital)}
+              onChange={e => setStartCapital(Number(e.target.value))}
+              min={1}
+              step={100}
+            />
+          </label>
+
+          <div style={{ flex: 1 }} />
+
+          <button className="primary" onClick={runBacktest} disabled={runLoading || loadingUniverse || universeTickers.length === 0}>
+            {runLoading ? "Running…" : "Run 5Y Backtest"}
+          </button>
+        </div>
+
+        {runErr && (
+          <div className="card" style={{ borderColor: "#733", color: "#ffb3b3", marginTop: 12 }}>
+            {runErr}
+          </div>
+        )}
+      </div>
+
+      <div className="card wealth-card">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>Universe</h3>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+            <span className="pill">Tickers: {universeTickers.length}</span>
+            <button className="ghost" onClick={() => setUniverseCollapsed(v => !v)}>
+              {universeCollapsed ? "Expand" : "Collapse"}
+            </button>
+          </div>
+        </div>
+        <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 8 }}>
+          Uses the selected portfolio's universe.
+        </div>
+
+        {!universeCollapsed && (
+          <div className="tableWrap" style={{ marginTop: 12 }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Name</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingUniverse && (
+                  <tr>
+                    <td colSpan={4} style={{ color: "var(--muted)" }}>Loading universe…</td>
+                  </tr>
+                )}
+                {!loadingUniverse && universe.length === 0 && (
+                  <tr>
+                    <td colSpan={4} style={{ color: "var(--muted)" }}>No universe assets.</td>
+                  </tr>
+                )}
+                {!loadingUniverse &&
+                  universe.map(a => (
+                    <tr key={a.ticker}>
+                      <td className="mono">{a.ticker}</td>
+                      <td>{a.name || "—"}</td>
+                      <td>{a.category || "—"}</td>
+                      <td>{a.status}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card wealth-card">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>Parameters</h3>
+          <div style={{ color: "var(--muted)", fontSize: 13 }}>Applies to Turbo and Buy & Hold fees</div>
+        </div>
+
+        <div className="row" style={{ gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Lookback (trading days)</div>
+            <input type="number" value={lookbackTradingDays} onChange={e => setLookbackTradingDays(Number(e.target.value))} min={10} max={2000} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Skip recent (trading days)</div>
+            <input type="number" value={skipRecentTradingDays} onChange={e => setSkipRecentTradingDays(Number(e.target.value))} min={0} max={365} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Vol COM days</div>
+            <input type="number" value={volCenterDaysCOM} onChange={e => setVolCenterDaysCOM(Number(e.target.value))} min={2} max={365} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Target vol (ann)</div>
+            <input type="number" value={targetVolAnn} onChange={e => setTargetVolAnn(Number(e.target.value))} min={0} max={5} step={0.1} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Top K</div>
+            <input type="number" value={topK} onChange={e => setTopK(Number(e.target.value))} min={1} max={50} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Max leverage</div>
+            <input type="number" value={maxLeverage} onChange={e => setMaxLeverage(Number(e.target.value))} min={0} max={50} step={0.25} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Commission ({selectedPortfolio?.base_currency || "ILS"})</div>
+            <input type="number" value={commissionBase} onChange={e => setCommissionBase(Number(e.target.value))} min={0} max={500} step={1} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>Rebalance every (trading days)</div>
+            <input
+              type="number"
+              value={rebalanceEveryTradingDays}
+              onChange={e => setRebalanceEveryTradingDays(Number(e.target.value))}
+              min={1}
+              max={90}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="card wealth-card">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>Summary</h3>
+          <div style={{ color: "var(--muted)", fontSize: 13 }}>Matches the report-style fields</div>
+        </div>
+
+        {!run && (
+          <div style={{ color: "var(--muted)", marginTop: 10 }}>
+            Run a sandbox backtest to see the summary.
+          </div>
+        )}
+
+        {run && (
+          <pre
+            style={{
+              marginTop: 12,
+              whiteSpace: "pre-wrap",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 12,
+              padding: 12,
+            }}
+          >
+{`## Summary\n\nFinal valuation date: ${run.summary.valuationDate}\nFinal equity: ${format2(run.summary.finalEquityTurbo)} ${baseCurrency}\nTotal commissions: ${format2(run.summary.totalCommissionsTurbo)} ${baseCurrency}\nBuy & Hold final equity: ${format2(run.summary.finalEquityBuyHold)} ${baseCurrency}\nBuy & Hold total commissions: ${format2(run.summary.totalCommissionsBuyHold)} ${baseCurrency}`}
+          </pre>
+        )}
+
+        {run?.warnings?.length ? (
+          <div style={{ marginTop: 12, color: "#ffcf99" }}>
+            {run.warnings.map((w, i) => (
+              <div key={i}>• {w}</div>
+            ))}
+          </div>
+        ) : null}
+
+        {run && (
+          <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
+            Universe used: {run.summary.universeUsed}/{run.summary.universeSize} · Trades: {run.summary.tradesTurbo} · Run id: {run.runId}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* LEGACY COMMAND CENTER (disabled)
 
   async function loadPortfolios() {
     if (!portfoliosApi) return;
@@ -1460,3 +1608,5 @@ export default function TsmomCommandCenter() {
     </div>
   );
 }
+
+*/

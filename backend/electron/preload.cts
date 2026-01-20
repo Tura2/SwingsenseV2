@@ -65,6 +65,10 @@ contextBridge.exposeInMainWorld("api", {
     getPerformance: (opts?: { portfolioId?: number; years?: number; benchmark?: string | null }) => ipcRenderer.invoke('tsmom:get-performance', opts || {}),
     sandboxRun: (opts?: { years?: number; benchmark?: string | null; params?: any }) => ipcRenderer.invoke('tsmom:sandbox-run', opts || {}),
     sandboxCompare: (opts: { years?: number; benchmark?: string | null; runs: Array<{ label: string; params: any }> }) => ipcRenderer.invoke('tsmom:sandbox-compare', opts),
+
+    sandboxEaRun: (opts: { portfolioId: number; tickers: string[]; yearsBack?: number; startCapital: number; benchmark?: string | null; params?: any }) =>
+      ipcRenderer.invoke('tsmom:sandbox-ea-run', opts),
+    sandboxEaRecordBook: (opts: { runId: number }) => ipcRenderer.invoke('tsmom:sandbox-ea-recordbook', opts),
     executeTrades: (payload: any) => ipcRenderer.invoke('tsmom:execute-trades', payload),
     listLedger: (opts?: { portfolioId?: number; limit?: number }) => ipcRenderer.invoke('tsmom:list-ledger', opts || {}),
     addLedgerEntry: (payload: any) => ipcRenderer.invoke('tsmom:add-ledger-entry', payload),
@@ -142,6 +146,9 @@ declare global {
 
         sandboxRun(opts?: { years?: number; benchmark?: string | null; params?: any }): Promise<any>;
         sandboxCompare(opts: { years?: number; benchmark?: string | null; runs: Array<{ label: string; params: any }> }): Promise<any>;
+
+        sandboxEaRun(opts: { portfolioId: number; tickers: string[]; yearsBack?: number; startCapital: number; benchmark?: string | null; params?: any }): Promise<any>;
+        sandboxEaRecordBook(opts: { runId: number }): Promise<{ run: any; trades: any[]; ledger: any[] }>;
 
         executeTrades(payload: any): Promise<{ ok: true }>;
         listLedger(opts?: { portfolioId?: number; limit?: number }): Promise<any[]>;

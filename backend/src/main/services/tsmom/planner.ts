@@ -135,58 +135,44 @@ export async function computeTsmomTurboV2Plan(opts?: { portfolioId?: number }): 
     // ignore
   }
 
-  // Universe: if portfolio_universe is populated for this portfolio, use it; otherwise fall back to all active assets.
-  const uniRows = db.prepare('SELECT ticker FROM portfolio_universe WHERE portfolio_id=? ORDER BY ticker ASC').all(portfolioId) as Array<{ ticker: string }>;
-  const uniSet = new Set(uniRows.map(r => String(r.ticker).toUpperCase()));
+  // Universe is portfolio-based only.
+  const uniRows = db
+    .prepare('SELECT ticker FROM portfolio_universe WHERE portfolio_id=? ORDER BY ticker ASC')
+    .all(portfolioId) as Array<{ ticker: string }>;
+  const tickers = uniRows.map(r => String(r.ticker).toUpperCase()).filter(Boolean);
 
-  let assets: TsmomAssetRow[];
-  if (uniSet.size > 0) {
-    // Prefer portfolio-scoped metadata when available; fall back to global assets; else minimal placeholder.
-    const tickers = Array.from(uniSet);
-    const placeholders = tickers.map(() => '?').join(',');
-
-    const globalRows = (tickers.length
-      ? (db.prepare(
-          `SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
-           FROM assets
-           WHERE ticker IN (${placeholders})`
-        ).all(...tickers) as TsmomAssetRow[])
-      : []) as TsmomAssetRow[];
-    const globalBy = new Map(globalRows.map(a => [String(a.ticker).toUpperCase(), a]));
-
-    const pRows = (tickers.length
-      ? (db.prepare(
+  const placeholders = tickers.map(() => '?').join(',');
+  const pRows = (tickers.length
+    ? (db
+        .prepare(
           `SELECT ticker, name, category, 'active' as status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
            FROM portfolio_assets
            WHERE portfolio_id=? AND ticker IN (${placeholders})`
-        ).all(portfolioId, ...tickers) as any[])
-      : []) as any[];
-    const pBy = new Map(pRows.map(a => [String(a.ticker).toUpperCase(), a as TsmomAssetRow]));
+        )
+        .all(portfolioId, ...tickers) as any[])
+    : []) as any[];
+  const pBy = new Map(pRows.map(a => [String(a.ticker).toUpperCase(), a as TsmomAssetRow]));
 
-    const now = Date.now();
-    assets = tickers.map(t => {
-      const key = String(t).toUpperCase();
-      return (
-        pBy.get(key) ||
-        globalBy.get(key) ||
-        ({
-          ticker: key,
-          name: null,
-          category: null,
-          status: 'active',
-          yahoo_symbol: null,
-          price_multiplier: 1,
-          created_at: now,
-          updated_at: now,
-          meta: null,
-        } as TsmomAssetRow)
-      );
-    });
-  } else {
-    assets = db
-      .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
-      .all() as TsmomAssetRow[];
-  }
+  const universeNow = Date.now();
+  const assets: TsmomAssetRow[] = tickers.map(t => {
+    const key = String(t).toUpperCase();
+    const row = pBy.get(key);
+    const pm = Number((row as any)?.price_multiplier);
+    return (
+      row ||
+      ({
+        ticker: key,
+        name: null,
+        category: null,
+        status: 'active',
+        yahoo_symbol: null,
+        price_multiplier: (Number.isFinite(pm) && pm > 0) ? pm : (key.endsWith('.TA') ? 0.01 : 1),
+        created_at: universeNow,
+        updated_at: universeNow,
+        meta: null,
+      } as TsmomAssetRow)
+    );
+  });
 
   // Load close histories (shared by raw + instruction derivation)
   const historyStmt = db.prepare('SELECT ts, close FROM candles WHERE symbol=? AND timeframe=\'1d\' ORDER BY ts ASC');
@@ -376,72 +362,47 @@ export async function computeTsmomSignalMatrix(opts?: { portfolioId?: number }):
     topK: 5,
   };
 
-  const portfolioId = opts?.portfolioId != null ? Number(opts.portfolioId) : null;
+  const portfolioId = Number(opts?.portfolioId ?? 1);
 
-  let assets: TsmomAssetRow[];
-  if (portfolioId) {
-    // Use effective portfolio universe when custom (even if empty). Otherwise use global assets.
-    let mode: 'default' | 'custom' = 'default';
-    try {
-      const row = db.prepare('SELECT universe_mode as mode FROM portfolio_states WHERE portfolio_id=?').get(portfolioId) as any;
-      const m = String(row?.mode || 'default').toLowerCase();
-      mode = m === 'custom' ? 'custom' : 'default';
-    } catch {
-      mode = 'default';
-    }
-
-    const uniRows = db.prepare('SELECT ticker FROM portfolio_universe WHERE portfolio_id=? ORDER BY ticker ASC').all(portfolioId) as Array<{ ticker: string }>;
-    const tickers = uniRows.map(r => String(r.ticker).toUpperCase()).filter(Boolean);
-
-    if (mode === 'custom') {
-      if (!tickers.length) {
-        return { asOf: toISODate(Date.now()), params, rows: [] };
-      }
-
-      const placeholders = tickers.map(() => '?').join(',');
-      const globalRows = (db.prepare(
-        `SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
-         FROM assets
-         WHERE ticker IN (${placeholders})`
-      ).all(...tickers) as TsmomAssetRow[]);
-      const globalBy = new Map(globalRows.map(a => [String(a.ticker).toUpperCase(), a]));
-
-      const pRows = (db.prepare(
-        `SELECT ticker, name, category, 'active' as status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
-         FROM portfolio_assets
-         WHERE portfolio_id=? AND ticker IN (${placeholders})`
-      ).all(portfolioId, ...tickers) as any[]);
-      const pBy = new Map(pRows.map(a => [String(a.ticker).toUpperCase(), a as TsmomAssetRow]));
-
-      const now = Date.now();
-      assets = tickers.map(t => {
-        const key = String(t).toUpperCase();
-        return (
-          pBy.get(key) ||
-          globalBy.get(key) ||
-          ({
-            ticker: key,
-            name: null,
-            category: null,
-            status: 'active',
-            yahoo_symbol: null,
-            price_multiplier: 1,
-            created_at: now,
-            updated_at: now,
-            meta: null,
-          } as TsmomAssetRow)
-        );
-      });
-    } else {
-      assets = db
-        .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
-        .all() as TsmomAssetRow[];
-    }
-  } else {
-    assets = db
-      .prepare("SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active'")
-      .all() as TsmomAssetRow[];
+  // Universe is portfolio-based only.
+  const uniRows = db
+    .prepare('SELECT ticker FROM portfolio_universe WHERE portfolio_id=? ORDER BY ticker ASC')
+    .all(portfolioId) as Array<{ ticker: string }>;
+  const tickers = uniRows.map(r => String(r.ticker).toUpperCase()).filter(Boolean);
+  if (!tickers.length) {
+    return { asOf: toISODate(Date.now()), params, rows: [] };
   }
+
+  const placeholders = tickers.map(() => '?').join(',');
+  const pRows = (db
+    .prepare(
+      `SELECT ticker, name, category, 'active' as status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
+       FROM portfolio_assets
+       WHERE portfolio_id=? AND ticker IN (${placeholders})`
+    )
+    .all(portfolioId, ...tickers) as any[]) as any[];
+  const pBy = new Map(pRows.map(a => [String(a.ticker).toUpperCase(), a as TsmomAssetRow]));
+
+  const now = Date.now();
+  const assets: TsmomAssetRow[] = tickers.map(t => {
+    const key = String(t).toUpperCase();
+    const row = pBy.get(key);
+    const pm = Number((row as any)?.price_multiplier);
+    return (
+      row ||
+      ({
+        ticker: key,
+        name: null,
+        category: null,
+        status: 'active',
+        yahoo_symbol: null,
+        price_multiplier: Number.isFinite(pm) && pm > 0 ? pm : key.endsWith('.TA') ? 0.01 : 1,
+        created_at: now,
+        updated_at: now,
+        meta: null,
+      } as TsmomAssetRow)
+    );
+  });
 
   const historyStmt = db.prepare("SELECT ts, close FROM candles WHERE symbol=? AND timeframe='1d' ORDER BY ts ASC");
   const requiredClosesForMomentum = params.lookbackTradingDays + params.skipRecentTradingDays + 2;

@@ -76,15 +76,28 @@ export class TsmomSyncManager {
     const sanityMovePct = Number(opts?.sanityMovePct ?? 20);
     const corpActionMovePct = Number(opts?.corpActionMovePct ?? Math.max(60, sanityMovePct * 2.5));
 
-    const includeInactive = Boolean(opts?.includeInactive);
+    void Boolean(opts?.includeInactive);
 
+    // Universe is portfolio-based only: sync candles for the combined portfolio universes.
     const assets = db
       .prepare(
-        includeInactive
-          ? "SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets ORDER BY category, ticker"
-          : "SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta FROM assets WHERE status='active' ORDER BY category, ticker"
+        `SELECT DISTINCT
+            u.ticker as ticker,
+            pa.name as name,
+            pa.category as category,
+            'active' as status,
+            pa.yahoo_symbol as yahoo_symbol,
+            COALESCE(pa.price_multiplier,
+              CASE WHEN UPPER(u.ticker) LIKE '%.TA' THEN 0.01 ELSE 1 END
+            ) as price_multiplier,
+            COALESCE(pa.created_at, u.created_at) as created_at,
+            COALESCE(pa.updated_at, u.created_at) as updated_at,
+            pa.meta as meta
+         FROM portfolio_universe u
+         LEFT JOIN portfolio_assets pa ON pa.portfolio_id=u.portfolio_id AND pa.ticker=u.ticker
+         ORDER BY category, ticker`
       )
-      .all() as TsmomAssetRow[];
+      .all() as any[] as TsmomAssetRow[];
 
     const runInfo = db
       .prepare(`

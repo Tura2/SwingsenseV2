@@ -6,14 +6,15 @@ import path from 'node:path';
 import { getDB, initDB } from '../../../dist-electron/src/main/db.js';
 import { fetchYahooCandlesByPeriod } from '../../../dist-electron/src/main/services/yahooChartApi.js';
 import { TsmomSyncManager } from '../../../dist-electron/src/main/services/tsmom/syncManager.js';
-import { ensureAssetsSeededFromExpandedUniverseJson } from '../../../dist-electron/src/main/services/tsmom/universeSeeder.js';
+import { ensurePortfolioUniverseSeededFromExpandedUniverseJson } from '../../../dist-electron/src/main/services/tsmom/universeSeeder.js';
 
 function parseArgv(argv) {
-  const out = { years: 5, wipe: true, allAssets: false };
+  const out = { years: 5, wipe: true, allAssets: false, portfolioId: 1 };
   for (const a of argv) {
     if (!a || typeof a !== 'string') continue;
     if (a === '--noWipe' || a === '--no-wipe') out.wipe = false;
     else if (a === '--allAssets' || a === '--all-assets') out.allAssets = true;
+    else if (a.startsWith('--portfolioId=')) out.portfolioId = Number(a.slice('--portfolioId='.length));
     else if (a.startsWith('--years=')) out.years = Number(a.slice('--years='.length));
     else if (a.startsWith('--backfillYears=')) out.years = Number(a.slice('--backfillYears='.length));
     else if (a.startsWith('--sanityMovePct=')) out.sanityMovePct = Number(a.slice('--sanityMovePct='.length));
@@ -21,6 +22,7 @@ function parseArgv(argv) {
   }
   if (!Number.isFinite(out.years) || out.years <= 0) out.years = 5;
   out.years = Math.min(20, Math.max(1, Math.floor(out.years)));
+  if (!Number.isFinite(out.portfolioId) || out.portfolioId <= 0) out.portfolioId = 1;
   return out;
 }
 
@@ -131,21 +133,22 @@ async function main() {
 
   const extras = ['USDILS=X', '^GSPC', 'SPY', '^TA125.TA', 'TA35.TA', 'TA90.TA'];
 
-  console.log(`[resync] starting (years=${years}, wipe=${args.wipe ? 'yes' : 'no'}, allAssets=${args.allAssets ? 'yes' : 'no'})`);
+  console.log(`[resync] starting (years=${years}, wipe=${args.wipe ? 'yes' : 'no'}, allPortfolios=${args.allAssets ? 'yes' : 'no'}, portfolioId=${args.portfolioId})`);
   console.log(`[resync] dbPath=${dbPath}`);
 
-  // Ensure we have an asset universe to sync.
+  // Ensure we have a portfolio universe to sync.
   try {
-    const seeded = ensureAssetsSeededFromExpandedUniverseJson({
+    const seeded = ensurePortfolioUniverseSeededFromExpandedUniverseJson({
       db,
+      portfolioId: args.portfolioId,
       jsonPathCandidates: [
         path.resolve(process.cwd(), 'data', 'tsmom_turbo_expanded_universe.json'),
         path.resolve(process.cwd(), 'data', 'tsmom_turbo_expanded_us_universe.json'),
       ],
     });
-    if (seeded?.seeded) console.log(`[resync] seeded assets from JSON: count=${seeded.count}`);
+    if (seeded?.seeded) console.log(`[resync] seeded portfolio universe from JSON: portfolioId=${args.portfolioId} count=${seeded.count}`);
   } catch (e) {
-    console.log(`[resync] asset seeding skipped/failed: ${e?.message || e}`);
+    console.log(`[resync] universe seeding skipped/failed: ${e?.message || e}`);
   }
 
   // Always remove clearly-invalid candles (pre-existing). Keeps DB sane even if wipe=false.
@@ -153,12 +156,10 @@ async function main() {
   if (Number(badDel?.changes || 0) > 0) console.log(`[resync] removed invalid candles: ${badDel.changes}`);
 
   if (args.wipe) {
-    const assetSyms = db
-      .prepare(args.allAssets
-        ? "SELECT DISTINCT UPPER(ticker) AS sym FROM assets"
-        : "SELECT DISTINCT UPPER(ticker) AS sym FROM assets WHERE status='active'")
-      .all()
-      .map(r => String(r.sym));
+    const assetSyms = (args.allAssets
+      ? db.prepare("SELECT DISTINCT UPPER(ticker) AS sym FROM portfolio_universe").all()
+      : db.prepare("SELECT DISTINCT UPPER(ticker) AS sym FROM portfolio_universe WHERE portfolio_id=?").all(args.portfolioId)
+    ).map(r => String(r.sym));
 
     const wipeSyms = Array.from(new Set([...assetSyms, ...extras.map(s => s.toUpperCase())]));
     console.log(`[resync] wiping 1d candles for ${wipeSyms.length} symbols…`);
@@ -170,13 +171,12 @@ async function main() {
     trx();
   }
 
-  console.log('[resync] syncing universe (assets table)…');
+  console.log('[resync] syncing universe (portfolio universes)…');
   const mgr = new TsmomSyncManager();
   const sum = await mgr.syncDailyCandlesForUniverse({
     backfillYears: years,
     sanityMovePct: Number.isFinite(args.sanityMovePct) ? args.sanityMovePct : undefined,
     corpActionMovePct: Number.isFinite(args.corpActionMovePct) ? args.corpActionMovePct : undefined,
-    includeInactive: args.allAssets ? true : undefined,
   });
   console.log(`[resync] universe sync done: updated=${sum.updated}, warnings=${sum.warnings.length}`);
 

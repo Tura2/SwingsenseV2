@@ -19,17 +19,20 @@ import { resolveTicker } from '../../dist-electron/src/main/services/tsmom/ticke
 
 function parseArgs(argv) {
   const out = {
+    portfolioId: 1,
     onlyActive: false,
     lookback: 63,
     skip: 10,
     outPath: null,
   };
   for (const a of argv.slice(2)) {
+    if (a.startsWith('--portfolioId=')) out.portfolioId = Number(a.slice('--portfolioId='.length));
     if (a === '--onlyActive') out.onlyActive = true;
     else if (a.startsWith('--lookback=')) out.lookback = Number(a.slice('--lookback='.length));
     else if (a.startsWith('--skip=')) out.skip = Number(a.slice('--skip='.length));
     else if (a.startsWith('--out=')) out.outPath = a.slice('--out='.length);
   }
+  if (!Number.isFinite(out.portfolioId) || out.portfolioId <= 0) out.portfolioId = 1;
   if (!Number.isFinite(out.lookback) || out.lookback <= 0) out.lookback = 63;
   if (!Number.isFinite(out.skip) || out.skip < 0) out.skip = 10;
   out.lookback = Math.floor(out.lookback);
@@ -64,12 +67,21 @@ const db = getDB();
 
 const assets = db
   .prepare(
-    `SELECT ticker, name, category, status, yahoo_symbol, price_multiplier, created_at, updated_at, meta
-     FROM assets
-     ${args.onlyActive ? "WHERE status='active'" : ''}
+    `SELECT u.ticker as ticker,
+            pa.name as name,
+            pa.category as category,
+            'active' as status,
+            pa.yahoo_symbol as yahoo_symbol,
+            pa.price_multiplier as price_multiplier,
+            COALESCE(pa.created_at, u.created_at) as created_at,
+            COALESCE(pa.updated_at, u.created_at) as updated_at,
+            pa.meta as meta
+     FROM portfolio_universe u
+     LEFT JOIN portfolio_assets pa ON pa.portfolio_id=u.portfolio_id AND pa.ticker=u.ticker
+     WHERE u.portfolio_id=?
      ORDER BY category, ticker`
   )
-  .all();
+  .all(args.portfolioId);
 
 const candleCountStmt = db.prepare("SELECT COUNT(*) AS c FROM candles WHERE symbol=? AND timeframe='1d'");
 const validCloseCountStmt = db.prepare(

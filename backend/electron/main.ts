@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { initDB } from "../src/main/db.js";
 import { registerIpcHandlers } from "../src/main/ipc.js";
 import { getDB } from "../src/main/db.js";
-import { ensureAssetsSeededFromExpandedUniverseJson } from "../src/main/services/tsmom/universeSeeder.js";
+import { ensurePortfolioUniverseSeededFromExpandedUniverseJson } from "../src/main/services/tsmom/universeSeeder.js";
 import { startTsmomSyncScheduler } from "../src/main/services/tsmom/syncScheduler.js";
 import { startWeeklyDbBackupScheduler } from "../src/main/services/backupService.js";
 import { startTsmomMonthlyRebalanceReminder } from "../src/main/services/tsmom/monthlyReminder.js";
@@ -59,17 +59,18 @@ app.on("ready", async () => {
       onError: (e) => log.warn('[backup] db backup failed', e),
     });
 
-    // Seed TSMOM asset universe (hybrid: seed from JSON once, then DB owns it)
+    // Seed default portfolio universe from JSON once (portfolio-scoped; no global assets table)
     try {
-      const seeded = ensureAssetsSeededFromExpandedUniverseJson({
+      const seeded = ensurePortfolioUniverseSeededFromExpandedUniverseJson({
         db: getDB(),
+        portfolioId: 1,
         jsonPathCandidates: [
           path.resolve(process.cwd(), 'data', 'tsmom_turbo_expanded_universe.json'),
           path.resolve(app.getAppPath(), 'data', 'tsmom_turbo_expanded_universe.json'),
         ],
       });
       if (seeded.seeded) {
-        log.info('[tsmom] seeded assets', { count: seeded.count, path: seeded.usedPath });
+        log.info('[tsmom] seeded portfolio universe', { portfolioId: 1, count: seeded.count, path: seeded.usedPath });
       }
     } catch (e) {
       log.warn('[tsmom] seeding failed', e);

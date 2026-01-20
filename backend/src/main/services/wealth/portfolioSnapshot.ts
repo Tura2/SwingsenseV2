@@ -112,7 +112,6 @@ export function computePortfolioSnapshot(portfolioId: number): PortfolioSnapshot
 
   const db = getDB();
   const multPortfolioStmt = db.prepare('SELECT price_multiplier as m FROM portfolio_assets WHERE portfolio_id=? AND ticker=?');
-  const multGlobalStmt = db.prepare('SELECT price_multiplier as m FROM assets WHERE ticker=?');
 
   function priceMultiplierFor(ticker: string): number {
     const t = String(ticker || '').toUpperCase();
@@ -120,13 +119,6 @@ export function computePortfolioSnapshot(portfolioId: number): PortfolioSnapshot
       const r1 = multPortfolioStmt.get(pid, t) as any;
       const m1 = Number(r1?.m);
       if (Number.isFinite(m1) && m1 > 0) return m1;
-    } catch {
-      // ignore
-    }
-    try {
-      const r2 = multGlobalStmt.get(t) as any;
-      const m2 = Number(r2?.m);
-      if (Number.isFinite(m2) && m2 > 0) return m2;
     } catch {
       // ignore
     }

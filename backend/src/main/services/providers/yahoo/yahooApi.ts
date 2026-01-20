@@ -25,7 +25,11 @@ type ChartQuery = {
 type ChartResult = {
   meta?: any;
   timestamp?: number[];
-  indicators?: { quote?: Array<{ open?: any[]; high?: any[]; low?: any[]; close?: any[]; volume?: any[] }> };
+  indicators?: {
+    quote?: Array<{ open?: any[]; high?: any[]; low?: any[]; close?: any[]; volume?: any[] }>;
+    // Yahoo provides adjusted close for many instruments (equities/ETFs) under indicators.adjclose[0].adjclose
+    adjclose?: Array<{ adjclose?: any[] }>;
+  };
 };
 
 function toUnixSecondsFromMs(ms: number): number {
@@ -125,7 +129,13 @@ export async function fetchYahooChartResult(symbol: string, query: ChartQuery, o
   return result;
 }
 
-export function chartResultToCandles(result: ChartResult): Candle[] {
+export function chartResultToCandles(
+  result: ChartResult,
+  opts?: {
+    // Prefer adjusted closes when Yahoo provides them (helps avoid split artifacts).
+    preferAdjClose?: boolean;
+  }
+): Candle[] {
   const ts = Array.isArray(result?.timestamp) ? result.timestamp : [];
   const quote = result?.indicators?.quote?.[0] || {};
   const opens = Array.isArray(quote.open) ? quote.open : [];
@@ -134,20 +144,29 @@ export function chartResultToCandles(result: ChartResult): Candle[] {
   const closes = Array.isArray(quote.close) ? quote.close : [];
   const volumes = Array.isArray(quote.volume) ? quote.volume : [];
 
+  const adj = result?.indicators?.adjclose?.[0] as any;
+  const adjcloses = Array.isArray(adj?.adjclose) ? adj.adjclose : [];
+  const useAdj = (opts?.preferAdjClose ?? true) && adjcloses.length === ts.length;
+
   const out: Candle[] = [];
   for (let i = 0; i < ts.length; i++) {
     const t = ts[i];
     if (!Number.isFinite(t)) continue;
 
-    const close = Number(closes[i] ?? opens[i] ?? 0);
-    const open = Number(opens[i] ?? close);
-    const high = Number(highs[i] ?? close);
-    const low = Number(lows[i] ?? close);
-    const volume = Number(volumes[i] ?? 0);
+    const closeRaw = useAdj ? adjcloses[i] : closes[i];
+    const closeN = numOrNull(closeRaw);
+    if (closeN == null || closeN <= 0) continue;
 
-    if (![open, high, low, close, volume].every(Number.isFinite)) continue;
+    const openN = numOrNull(opens[i]) ?? closeN;
+    const highN = numOrNull(highs[i]) ?? closeN;
+    const lowN = numOrNull(lows[i]) ?? closeN;
+    const volN = numOrNull(volumes[i]) ?? 0;
 
-    out.push({ ts: t * 1000, open, high, low, close, volume });
+    if (![openN, highN, lowN, closeN, volN].every(Number.isFinite)) continue;
+    if (openN <= 0 || highN <= 0 || lowN <= 0) continue;
+    if (highN < lowN) continue;
+
+    out.push({ ts: t * 1000, open: openN, high: highN, low: lowN, close: closeN, volume: volN });
   }
 
   out.sort((a, b) => a.ts - b.ts);
@@ -177,8 +196,9 @@ export async function fetchYahooCandlesByPeriod(
     period1: toUnixSecondsFromMs(startMs),
     period2: toUnixSecondsFromMs(endMs),
     includePrePost,
+    events: interval === '1d' || interval === '1wk' || interval === '1mo' ? 'div,splits' : undefined,
   });
-  return chartResultToCandles(result);
+  return chartResultToCandles(result, { preferAdjClose: interval === '1d' || interval === '1wk' || interval === '1mo' });
 }
 
 export async function fetchYahooCandlesByRange(
@@ -191,8 +211,9 @@ export async function fetchYahooCandlesByRange(
     interval,
     range,
     includePrePost,
+    events: interval === '1d' || interval === '1wk' || interval === '1mo' ? 'div,splits' : undefined,
   });
-  return chartResultToCandles(result);
+  return chartResultToCandles(result, { preferAdjClose: interval === '1d' || interval === '1wk' || interval === '1mo' });
 }
 
 export async function fetchQuoteLiteFromChart(symbol: string): Promise<QuoteLite> {
