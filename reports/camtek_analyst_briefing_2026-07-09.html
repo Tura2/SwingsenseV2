@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>קמטק (CAMT) · בריפינג אנליסט — 09/07/2026</title>
+<style>
+  :root{
+    --bg:#07111f;--p1:#0f1c30;--p2:#162235;--line:#1f3050;
+    --text:#e8f0fc;--muted:#7a96bc;--green:#28d882;--red:#ff4d68;
+    --gold:#f6c94d;--blue:#4aaeff;--cyan:#35dde8;--orange:#ff9b3b;--purple:#b07bff;
+    --shadow:0 10px 40px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1400px 700px at 70% -5%,#112036 0,var(--bg) 60%);
+    color:var(--text);font-family:'Heebo','Segoe UI',system-ui,Arial,sans-serif;
+    padding:16px;line-height:1.55;-webkit-font-smoothing:antialiased;min-height:100vh}
+  .wrap{max-width:1120px;margin:0 auto}
+  .hdr{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .logo-row{display:flex;align-items:center;gap:14px}
+  .logo{width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,#1a6ff0,#28d882);
+    display:grid;place-items:center;font-weight:900;font-size:20px;flex-shrink:0;box-shadow:var(--shadow)}
+  .logo-txt h1{font-size:20px;font-weight:800}
+  .logo-txt p{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .pill{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(40,216,130,.55)}70%{box-shadow:0 0 0 10px transparent}to{box-shadow:0 0 0 0 transparent}}
+  .g{display:grid;gap:13px}
+  .g-2{grid-template-columns:1fr 1fr}.g-3{grid-template-columns:repeat(3,1fr)}.g-4{grid-template-columns:repeat(4,1fr)}
+  .ladder-layout{grid-template-columns:1.15fr .85fr}
+  .card{background:linear-gradient(170deg,var(--p1),#0b1627);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
+  .sec{font-size:13px;color:var(--muted);margin:0 2px 12px;display:flex;align-items:center;gap:8px}
+  .sec b{color:var(--text);font-weight:700;font-size:14.5px}
+  .stat-k{font-size:12px;color:var(--muted);margin-bottom:6px}
+  .stat-v{font-size:24px;font-weight:900}
+  .pos{color:var(--green)}.neg{color:var(--red)}
+  .mini{font-size:11.5px;color:var(--muted)}
+  input[type=range]{width:100%;accent-color:var(--blue);cursor:pointer}
+  input[type=number]{width:100%;background:#070f1d;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:8px 10px;font-size:15px;font-weight:800;font-family:inherit;outline:none}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+  .row:last-child{border:0}
+  .row .lab{color:var(--muted)} .row .val{font-weight:700}
+  .chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700}
+  .c-key{background:rgba(246,201,77,.16);color:var(--gold)}
+  .c-res{background:rgba(255,77,104,.13);color:var(--red)}
+  .c-sup{background:rgba(40,216,130,.13);color:var(--green)}
+  .c-ma{background:rgba(74,174,255,.14);color:var(--blue)}
+  /* valuation gauge */
+  .vgauge{position:relative;height:34px;background:linear-gradient(90deg,#1c3a2a,#3a2a1c,#3a1c26);border-radius:8px;margin:14px 0 6px;border:1px solid var(--line)}
+  .vgauge .mk{position:absolute;top:-6px;width:2px;height:46px;background:var(--text)}
+  .vgauge .lbl{position:absolute;top:38px;font-size:10px;color:var(--muted);transform:translateX(50%)}
+  /* bull/bear */
+  .bb{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  .bb .col{padding:4px 14px}
+  .bb .col:first-child{border-inline-end:1px solid var(--line)}
+  .bb h4{font-size:14px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .bb ul{list-style:none} .bb li{font-size:12.8px;padding:5px 0;color:var(--text);display:flex;gap:7px}
+  .bb li::before{content:"▪";flex-shrink:0}
+  .bull h4{color:var(--green)} .bull li::before{color:var(--green)}
+  .bear h4{color:var(--red)} .bear li::before{color:var(--red)}
+  /* catalysts */
+  ul.ck{list-style:none}
+  ul.ck li{display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:11px;margin-bottom:8px;background:#08131f;cursor:pointer;transition:.15s;font-size:13.5px}
+  ul.ck li:hover{border-color:var(--blue)}
+  ul.ck li.done{opacity:.5;border-color:rgba(40,216,130,.3)}
+  .cb{width:20px;height:20px;border-radius:6px;border:2px solid var(--muted);flex-shrink:0;display:grid;place-items:center;font-size:12px;color:transparent;margin-top:1px}
+  li.done .cb{background:var(--green);border-color:var(--green);color:#041a0f}
+  .tg{font-size:10.5px;padding:2px 8px;border-radius:6px;margin-inline-start:auto;white-space:nowrap;align-self:center}
+  .t-price{background:rgba(246,201,77,.14);color:var(--gold)}.t-ev{background:rgba(176,123,255,.15);color:var(--purple)}
+  .t-mac{background:rgba(74,174,255,.14);color:var(--blue)}.t-val{background:rgba(255,77,104,.13);color:var(--red)}
+  .synth{background:rgba(74,174,255,.07);border:1px solid rgba(74,174,255,.3);border-radius:12px;padding:14px;font-size:14px;line-height:1.7}
+  footer{color:var(--muted);font-size:11.5px;text-align:center;margin-top:16px;line-height:1.8}
+  a{color:var(--blue);text-decoration:none}
+  .note{font-size:11px;color:var(--muted);font-style:italic;margin-top:6px}
+  @media(max-width:860px){.g-2,.g-3,.g-4,.ladder-layout{grid-template-columns:1fr}.bb{grid-template-columns:1fr}.bb .col:first-child{border-inline-end:0;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:6px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hdr">
+    <div class="logo-row">
+      <div class="logo">קמ</div>
+      <div class="logo-txt"><h1>קמטק · CAMT — בריפינג אנליסט</h1>
+      <p>מה חשוב לדעת · מניה + סקטור · 09/07/2026</p></div>
+    </div>
+    <div class="pill"><span class="dot"></span>נתונים עד 09/07/2026</div>
+  </div>
+
+  <!-- SNAPSHOT -->
+  <div class="g g-4" style="margin-bottom:13px">
+    <div class="card"><div class="stat-k">מחיר (TASE)</div><div class="stat-v" id="s-price">44,250</div><div class="mini">₪442.5 · $142 (NASDAQ)</div></div>
+    <div class="card"><div class="stat-k">מ-MA200 (44,126)</div><div class="stat-v pos">+0.3%</div><div class="mini">הוחזר אחרי קפיטולציה</div></div>
+    <div class="card"><div class="stat-k">RSI(14)</div><div class="stat-v" style="color:var(--gold)">42.4</div><div class="mini">מ-31.4 (07/07) · מתאושש</div></div>
+    <div class="card"><div class="stat-k">אנליסטים</div><div class="stat-v" style="color:var(--blue)">$187</div><div class="mini">Buy/Hold · טווח $120–220</div></div>
+  </div>
+
+  <!-- TECHNICAL LADDER + POSITION -->
+  <div class="g ladder-layout" style="margin-bottom:13px">
+    <div class="card">
+      <p class="sec">📊 <b>מפת הרמות</b> — התמיכות, ההתנגדויות והמבחן הגדול</p>
+      <svg id="ladder" viewBox="0 0 440 560" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block"></svg>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px">
+        <span>⭐ מבחן 50K</span><span>🔵 ממוצעים נעים</span><span>🔴 התנגדות</span><span>🟢 תמיכה</span><span>🔷 נוכחי</span></div>
+    </div>
+    <div class="card">
+      <p class="sec">🎚️ <b>סימולציה</b></p>
+      <div class="mini" style="margin-bottom:4px">מחיר (אגורות) — גרור</div>
+      <input type="range" id="sl" min="36000" max="63000" step="10" value="44250">
+      <input type="number" id="cur" value="44250" step="10" style="margin-top:8px">
+      <div style="margin-top:12px" class="row"><span class="lab">מרחק ל-50,000 (המבחן)</span><span class="val" id="d50"></span></div>
+      <div class="row"><span class="lab">מרחק לשיא יוני (60,770)</span><span class="val" id="d60"></span></div>
+      <div class="row"><span class="lab">מרחק ל-ATH (61,600)</span><span class="val" id="dath"></span></div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+      <div class="mini" style="margin-bottom:6px">הפוזיציה שלך (22 מ' @ 44,236)</div>
+      <div class="row"><span class="lab">P&L פוזיציה</span><span class="val stat-v" id="pl" style="font-size:20px"></span></div>
+      <div class="row"><span class="lab">+ נעול קודם</span><span class="val pos">+1,160 ₪</span></div>
+      <div class="row"><span class="lab">נטו על הסאגה</span><span class="val" id="net" style="font-weight:800"></span></div>
+    </div>
+  </div>
+
+  <!-- COMPANY + VALUATION -->
+  <div class="g g-2" style="margin-bottom:13px">
+    <div class="card">
+      <p class="sec">🏢 <b>החברה — מה חשוב לדעת</b></p>
+      <div class="row"><span class="lab">מה עושה</span><span class="val">ציוד בדיקה/מטרולוגיה לאריזה מתקדמת</span></div>
+      <div class="row"><span class="lab">פלטפורמות</span><span class="val">Eagle G5 · Hawk</span></div>
+      <div class="row"><span class="lab">נתח שוק בנישה</span><span class="val">קמטק+Onto ≈ 65%</span></div>
+      <div class="row"><span class="lab">מתחרים גדולים</span><span class="val">KLA (24.6%) · Applied Materials</span></div>
+      <div class="row"><span class="lab">הכנסות 2026 / 2027</span><span class="val">$559M (+13%) → $663M</span></div>
+      <div class="row"><span class="lab">צבר HBM 26–27</span><span class="val">$260M+ · AI = 50% מהמכירות</span></div>
+      <div class="row"><span class="lab">קטליסט קרוב</span><span class="val" style="color:var(--purple)">דוח Q2 · ~אוגוסט (בינארי)</span></div>
+    </div>
+    <div class="card">
+      <p class="sec">⚠️ <b>הוולואציה — לב הסיפור</b></p>
+      <div style="font-size:13.5px;line-height:1.7">המניה מתומחרת <b style="color:var(--red)">לשלמות</b>. זה המקור לתנודתיות ולמה המפולת פגעה בה חזק:</div>
+      <div class="vgauge">
+        <div class="mk" style="right:22%"><div class="lbl" style="right:22%;color:var(--muted)">חציון 5ש<br>~35x</div></div>
+        <div class="mk" style="right:45%;background:var(--gold)"><div class="lbl" style="right:45%;color:var(--gold)">ממוצע סקטור<br>~65x</div></div>
+        <div class="mk" style="right:82%;background:var(--red)"><div class="lbl" style="right:82%;color:var(--red)">קמטק היום<br>127–222x</div></div>
+      </div>
+      <div style="margin-top:34px"></div>
+      <div class="row"><span class="lab">GF Value מול מחיר</span><span class="val neg">$109 מול $182 (יקר ~67%)</span></div>
+      <div class="row"><span class="lab">אפריל 2026</span><span class="val neg">הורדה Buy → Hold על ולואציה</span></div>
+      <div class="row"><span class="lab">Q1 2026</span><span class="val neg">היכתה — והמניה ירדה</span></div>
+      <div class="note">אין מרווח ביטחון: כל מעידה = ירידה חדה.</div>
+    </div>
+  </div>
+
+  <!-- SECTOR -->
+  <div class="card" style="margin-bottom:13px">
+    <p class="sec">🌐 <b>הסקטור — המנוע האמיתי (קמטק עוקבת אחרי הטייפ הזה)</b></p>
+    <div class="g g-4">
+      <div><div class="stat-k">ביקוש HBM ל-2027</div><div class="stat-v pos">×8</div><div class="mini">123M→972M GB · CAGR ~28%</div></div>
+      <div><div class="stat-k">Nvidia הזמנות</div><div class="stat-v pos">$1T+</div><div class="mini">Blackwell+Rubin עד 2027</div></div>
+      <div><div class="stat-k">Micron capex FY27</div><div class="stat-v pos">$45B</div><div class="mini">HBM מכור עד 2027</div></div>
+      <div><div class="stat-k">Hyperscalers 2026</div><div class="stat-v pos">$650B</div><div class="mini">תשתית AI</div></div>
+    </div>
+    <div style="margin-top:12px;font-size:13px;line-height:1.7;color:var(--text)">
+      <b style="color:var(--orange)">התיקון של יולי:</b> SOX ~-15% מהשיא (עדיין +75% מתחילת השנה), Micron -20% (עדיין +200%).
+      טריגרים: SK Hynix מסיטה HBM4→DRAM, Nvidia Rubin חותכת משלוחים על מחסור HBM4, חשש ולואציה, פד ניצי.
+      ➡️ <b>תיקון ולואציה בתוך שוק שורי מבני — לא קריסת ביקוש.</b> אבל קמטק high-beta → נופלת הכי חזק כשמתקנים.
+    </div>
+  </div>
+
+  <!-- WATCH + BULL/BEAR -->
+  <div class="g g-2" style="margin-bottom:13px">
+    <div class="card">
+      <p class="sec">👁️ <b>מה לעקוב אחריו</b> — נקודות הכרעה</p>
+      <ul class="ck" id="ck">
+        <li data-id="w1"><span class="cb">✓</span><span><b>50,000</b> — הקו בין באונס לחידוש מגמה (MA20+MA50)</span><span class="tg t-price">מחיר</span></li>
+        <li data-id="w2"><span class="cb">✓</span><span><b>דוח Q2 (אוגוסט)</b> — הסתכל על תחזית H2 וצבר, לא רק ביט</span><span class="tg t-ev">אירוע</span></li>
+        <li data-id="w3"><span class="cb">✓</span><span>קצב <b>הזמנות HBM</b> — הודעות חדשות / דחיות מפיבוט SK Hynix</span><span class="tg t-ev">אירוע</span></li>
+        <li data-id="w4"><span class="cb">✓</span><span>טון הסקטור — <b>SOX / Micron / SK Hynix</b></span><span class="tg t-mac">מאקרו</span></li>
+        <li data-id="w5"><span class="cb">✓</span><span><b>ולואציה</b> — האם אנליסטים קוצצים או מחזיקים יעדים</span><span class="tg t-val">סיכון</span></li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="sec">⚖️ <b>שור מול דוב</b></p>
+      <div class="bb">
+        <div class="col bull"><h4>🐂 שור</h4><ul>
+          <li>סופר-סייקל HBM/AI מבני</li>
+          <li>מובילה בנישת האריזה (65%)</li>
+          <li>נראות הזמנות ל-2027</li>
+          <li>החזרת 200 יום אחרי קפיטולציה</li>
+          <li>מחסור HBM4 = ביקוש עז</li>
+        </ul></div>
+        <div class="col bear"><h4>🐻 דוב</h4><ul>
+          <li>ולואציה קיצונית (מתומחר לשלמות)</li>
+          <li>High-beta בסקטור שמתקן</li>
+          <li>דוח בינארי — גם ביטים נמכרים</li>
+          <li>תזמון הזמנות: פיבוט SK Hynix</li>
+          <li>מתחרים גדולים (KLA, AMAT)</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SYNTHESIS -->
+  <div class="card" style="margin-bottom:13px">
+    <p class="sec">🎯 <b>הסינתזה</b></p>
+    <div class="synth">
+      חברה איכותית בסופר-סייקל אמיתי — אבל <b>מניה יקרה ותנודתית שבה ה-driver הוא הטייפ של HBM/הסקטור, והסיכון הוא המכפיל.</b>
+      "הסיפור נכון, המחיר יקר." בטווח הקצר קמטק תזוז עם <b>סנטימנט הזיכרון</b> יותר מאשר עם היסודות שלה עצמה.
+      נקודת ההכרעה הקרובה: <b style="color:var(--gold)">50,000</b> (באונס/מגמה), והאירוע: <b style="color:var(--purple)">דוח אוגוסט</b>.
+    </div>
+  </div>
+
+  <footer>
+    ⚠️ בריפינג מחקרי — <b>לא ייעוץ השקעות מורשה</b>. אינדיקטורים חושבו מנתוני OHLCV עד 09/07/2026.<br>
+    מקורות: 24/7 Wall St · Investing.com (SWOT) · GuruFocus · Fortune · SDxCentral · CNN · נתוני TASE
+  </footer>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const fmt=n=>(n>=0?'+':'')+Math.round(n).toLocaleString('he-IL')+' ₪';
+const fmtP=n=>Math.round(n).toLocaleString('he-IL');
+const cls=n=>n>=0?'pos':'neg';
+const ENTRY=44236, SHARES=22, LOCKED=1160;
+
+const LEVELS=[
+  {p:61600,name:'ATH (27/04)',t:'res'},
+  {p:60770,name:'שיא יוני',t:'res'},
+  {p:56000,name:'קונסולידציית יוני',t:'res'},
+  {p:53000,name:'קונסולידציית יוני',t:'res'},
+  {p:50591,name:'MA50',t:'ma'},
+  {p:50000,name:'⭐ המבחן הגדול',t:'key'},
+  {p:49796,name:'MA20',t:'ma'},
+  {p:48000,name:'התנגדות ביניים',t:'res'},
+  {p:45710,name:'תחתית כפולה שנשברה',t:'res'},
+  {p:44126,name:'MA200',t:'ma'},
+  {p:42400,name:'שפל 09/07',t:'sup'},
+  {p:39500,name:'קפיטולציה 07/07',t:'sup'},
+  {p:37900,name:'מדף דצמבר',t:'sup'},
+];
+
+function drawLadder(cur){
+  const LMN=36000,LMX=63000,H=560,TP=16,BT=16,X0=92,X1=300;
+  const yOf=p=>TP+(H-TP-BT)*(1-(p-LMN)/(LMX-LMN));
+  let s='';
+  // blue-sky above ATH
+  s+=`<rect x="${X0}" y="${yOf(LMX)}" width="${X1-X0}" height="${yOf(61600)-yOf(LMX)}" fill="rgba(176,123,255,.06)"/>`;
+  s+=`<line x1="${X0}" y1="${TP}" x2="${X0}" y2="${H-BT}" stroke="#1a2d44" stroke-width="2"/>`;
+  LEVELS.forEach(l=>{
+    const y=yOf(l.p); let col='#46587a',sw=1.3,da='';
+    if(l.t==='key'){col='var(--gold)';sw=2.4;}
+    if(l.t==='ma'){col='var(--blue)';da='stroke-dasharray="3 3"';}
+    if(l.t==='res'){col='var(--red)';}
+    if(l.t==='sup'){col='var(--green)';da='stroke-dasharray="5 3"';}
+    s+=`<line x1="${X0}" y1="${y}" x2="${X1}" y2="${y}" stroke="${col}" stroke-width="${sw}" ${da} opacity="${l.t==='res'?.6:.95}"/>`;
+    s+=`<text x="${X0-6}" y="${y+4}" text-anchor="end" font-size="11" font-weight="700" fill="${col}">${fmtP(l.p)}</text>`;
+    s+=`<text x="${X1+8}" y="${y+4}" text-anchor="start" font-size="10.5" fill="var(--muted)">${l.name}</text>`;
+  });
+  const cc=Math.max(LMN,Math.min(LMX,cur)),ym=yOf(cc),pw=76;
+  s+=`<line x1="${X0-6}" y1="${ym}" x2="${X1+2}" y2="${ym}" stroke="var(--cyan)" stroke-width="2.5"/>`;
+  s+=`<rect x="${X0-6-pw}" y="${ym-13}" width="${pw}" height="26" rx="13" fill="var(--cyan)"/>`;
+  s+=`<text x="${X0-6-pw/2}" y="${ym+5}" text-anchor="middle" font-size="12" font-weight="900" fill="#041a1a">${fmtP(cc)}</text>`;
+  s+=`<polygon points="${X1+2},${ym-5} ${X1+11},${ym} ${X1+2},${ym+5}" fill="var(--cyan)"/>`;
+  $('#ladder').innerHTML=s;
+}
+
+function dist(target,cur){
+  const d=target-cur, pct=d/cur*100;
+  return (d>=0?'+':'')+fmtP(d)+' ('+(pct>=0?'+':'')+pct.toFixed(1)+'%)';
+}
+
+function update(){
+  const cur=parseFloat($('#cur').value)||44250;
+  $('#s-price').textContent=fmtP(cur);
+  $('#d50').textContent=dist(50000,cur);
+  $('#d60').textContent=dist(60770,cur);
+  $('#dath').textContent=dist(61600,cur);
+  const pl=(cur-ENTRY)*SHARES/100;
+  $('#pl').textContent=fmt(pl); $('#pl').className='val stat-v '+cls(pl);
+  const net=pl+LOCKED;
+  $('#net').textContent=fmt(net); $('#net').className='val '+cls(net);
+  drawLadder(cur);
+}
+$('#sl').addEventListener('input',e=>{$('#cur').value=e.target.value;update();});
+$('#cur').addEventListener('input',e=>{$('#sl').value=e.target.value;update();});
+
+const CK='camt_briefing_20260709';
+let saved=JSON.parse(localStorage.getItem(CK)||'{}');
+document.querySelectorAll('#ck li').forEach(li=>{
+  if(saved[li.dataset.id])li.classList.add('done');
+  li.addEventListener('click',()=>{li.classList.toggle('done');
+    saved[li.dataset.id]=li.classList.contains('done');
+    localStorage.setItem(CK,JSON.stringify(saved));});
+});
+
+update();
+</script>
+</body>
+</html>
