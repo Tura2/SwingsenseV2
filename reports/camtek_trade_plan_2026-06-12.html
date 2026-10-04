@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>קמטק (CAMT) · תוכנית עסקה — 12/06/2026</title>
+<style>
+  :root{
+    --bg:#07111f; --p1:#0f1c30; --p2:#162235; --line:#1f3050;
+    --text:#e8f0fc; --muted:#7a96bc; --green:#28d882; --red:#ff4d68;
+    --gold:#f6c94d; --blue:#4aaeff; --cyan:#35dde8; --orange:#ff9b3b;
+    --shadow:0 10px 40px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:radial-gradient(1400px 700px at 70% -5%,#112036 0%,var(--bg) 60%);
+    color:var(--text);font-family:'Heebo','Segoe UI',system-ui,Arial,sans-serif;
+    padding:16px;line-height:1.55;-webkit-font-smoothing:antialiased;min-height:100vh
+  }
+  .wrap{max-width:1100px;margin:0 auto}
+  /* header */
+  .hdr{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .logo-row{display:flex;align-items:center;gap:14px}
+  .logo{width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,#1a6ff0,#28d882);
+    display:grid;place-items:center;font-weight:900;font-size:20px;flex-shrink:0;box-shadow:var(--shadow)}
+  .logo-txt h1{font-size:20px;font-weight:800}
+  .logo-txt p{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .pulse-wrap{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(40,216,130,.55)}70%{box-shadow:0 0 0 10px transparent}to{box-shadow:0 0 0 0 transparent}}
+  /* layout helpers */
+  .g{display:grid;gap:13px}
+  .g-4{grid-template-columns:repeat(4,1fr)}
+  .g-2{grid-template-columns:1fr 1fr}
+  .g-3{grid-template-columns:repeat(3,1fr)}
+  .card{background:linear-gradient(170deg,var(--p1),#0b1627);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
+  .sec{font-size:13px;color:var(--muted);margin:0 2px 10px;display:flex;align-items:center;gap:8px}
+  .sec b{color:var(--text);font-weight:700}
+  /* stat cards */
+  .stat-k{font-size:12px;color:var(--muted);margin-bottom:7px}
+  .stat-v{font-size:26px;font-weight:900;letter-spacing:.2px}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  /* inputs */
+  label.fld{display:block;margin-bottom:13px}
+  label.fld span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  input[type=number]{width:100%;background:#070f1d;border:1px solid var(--line);color:var(--text);
+    border-radius:11px;padding:10px 12px;font-size:16px;font-weight:800;font-family:inherit;outline:none}
+  input[type=range]{width:100%;accent-color:var(--blue);cursor:pointer}
+  .range-row{display:flex;align-items:center;gap:10px}
+  .range-row input[type=number]{width:110px}
+  .calc-result{background:#070f1d;border:1px solid var(--line);border-radius:12px;padding:14px}
+  /* target cards */
+  .tc .badge{font-size:11px;padding:3px 10px;border-radius:999px;font-weight:700;display:inline-block;margin-bottom:10px}
+  .b-hit{background:rgba(40,216,130,.15);color:var(--green);border:1px solid rgba(40,216,130,.4)}
+  .b-near{background:rgba(246,201,77,.15);color:var(--gold);border:1px solid rgba(246,201,77,.4)}
+  .b-wait{background:rgba(122,150,188,.1);color:var(--muted);border:1px solid var(--line)}
+  .tc .t-name{font-size:13px;color:var(--gold);font-weight:800;margin-bottom:6px}
+  .tc .t-price{font-size:28px;font-weight:900}
+  .tc .t-meta{font-size:12px;color:var(--muted);margin-top:6px}
+  .tc .t-meta b{color:var(--green)}
+  .prog{height:9px;background:#070f1d;border-radius:999px;overflow:hidden;border:1px solid var(--line);margin-top:8px}
+  .prog i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--green));transition:width .3s}
+  /* stop buttons */
+  .stop-btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px}
+  .sbtn{flex:1;min-width:120px;background:#070f1d;border:1px solid var(--line);color:var(--text);
+    border-radius:13px;padding:11px 8px;cursor:pointer;text-align:center;font-family:inherit;transition:.15s}
+  .sbtn small{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+  .sbtn:hover{border-color:var(--blue);background:rgba(74,174,255,.07)}
+  .sbtn.active{border-color:var(--green);background:rgba(40,216,130,.09)}
+  /* checklist */
+  ul.ck{list-style:none}
+  ul.ck li{display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border:1px solid var(--line);
+    border-radius:12px;margin-bottom:8px;background:#08131f;cursor:pointer;transition:.15s;font-size:14px}
+  ul.ck li:hover{border-color:var(--blue)}
+  ul.ck li.done{opacity:.45;text-decoration:line-through;border-color:rgba(40,216,130,.3)}
+  .cb{width:22px;height:22px;border-radius:7px;border:2px solid var(--muted);flex-shrink:0;
+    display:grid;place-items:center;font-size:13px;color:transparent;margin-top:1px}
+  li.done .cb{background:var(--green);border-color:var(--green);color:#041a0f}
+  .tag{font-size:11px;padding:2px 9px;border-radius:6px;margin-inline-start:auto;white-space:nowrap;align-self:center}
+  .do{background:rgba(74,174,255,.14);color:var(--blue)}
+  .watch{background:rgba(246,201,77,.13);color:var(--gold)}
+  .dont{background:rgba(255,77,104,.14);color:var(--red)}
+  .warn{background:rgba(255,155,59,.14);color:var(--orange)}
+  /* alert box */
+  .alert{display:flex;gap:12px;align-items:flex-start;padding:12px 15px;border-radius:13px;margin-bottom:13px;font-size:14px}
+  .alert.g-alert{background:rgba(40,216,130,.08);border:1px solid rgba(40,216,130,.3)}
+  .alert.y-alert{background:rgba(246,201,77,.08);border:1px solid rgba(246,201,77,.3)}
+  .alert.r-alert{background:rgba(255,77,104,.08);border:1px solid rgba(255,77,104,.3)}
+  .alert .ico{font-size:20px;margin-top:1px;flex-shrink:0}
+  /* candle chart */
+  #chart-svg{width:100%;height:240px;display:block}
+  .x-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);padding:4px 6px 0;direction:ltr}
+  /* footer */
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:16px;line-height:1.9}
+  a{color:var(--blue);text-decoration:none}
+  @media(max-width:840px){.g-4{grid-template-columns:1fr 1fr}.g-2,.g-3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <div class="hdr">
+    <div class="logo-row">
+      <div class="logo">קמ</div>
+      <div class="logo-txt">
+        <h1>קמטק · CAMT.TA · 1095264</h1>
+        <p>תוכנית עסקה אינטראקטיבית — ניתוח מחודש 12/06/2026</p>
+      </div>
+    </div>
+    <div class="pulse-wrap"><span class="dot"></span>נכון לסגירת 12/06/2026</div>
+  </div>
+
+  <!-- ALERTS -->
+  <div class="alert g-alert">
+    <span class="ico">🚀</span>
+    <div><b>T1 חדר! (516 ₪)</b> — המניה נסגרה ב-550.20 ₪ היום, +7.7% ביום ו-+12.5% מהכניסה. מבנה: בלוק קונסולידציה 503–519 (03–11/06) נשבר כלפי מעלה. T2 (570) בטווח ידיים.</div>
+  </div>
+  <div class="alert y-alert">
+    <span class="ico">⚡</span>
+    <div><b>שים לב — ויק הזעזוע ב-10/06:</b> המניה ירדה intraday ל-477.70 ₪ (מתחת לכניסה!) ואז סגרה ב-518.10. זה היה <b>shakeout קלאסי</b> שנדחה. מי שהחזיק — יצא מורווח.</div>
+  </div>
+
+  <!-- HERO STATS -->
+  <div class="g g-4" style="margin-bottom:13px">
+    <div class="card"><div class="stat-k">כניסה</div><div class="stat-v">489.00 ₪</div></div>
+    <div class="card"><div class="stat-k">סגירה היום</div><div class="stat-v" id="s-cur">550.20 ₪</div></div>
+    <div class="card"><div class="stat-k">רווח / הפסד</div><div class="stat-v pos" id="s-pl">+1,224 ₪</div></div>
+    <div class="card"><div class="stat-k">תשואה</div><div class="stat-v pos" id="s-pct">+12.5%</div></div>
+  </div>
+
+  <!-- CALC + LADDER -->
+  <div class="g g-2" style="margin-bottom:13px">
+    <div class="card">
+      <p class="sec">🧮 <b>מחשבון חי</b> — שנה את הסימולציה</p>
+      <label class="fld"><span>מחיר כניסה (₪)</span><input type="number" id="entry" value="489" step="0.1"></label>
+      <label class="fld"><span>כמות מניות</span><input type="number" id="shares" value="20" step="1"></label>
+      <label class="fld"><span>מחיר סימולציה (₪) — גרור</span>
+        <div class="range-row">
+          <input type="range" id="sl" min="440" max="650" step="0.1" value="550.2">
+          <input type="number" id="cur" value="550.2" step="0.1">
+        </div>
+      </label>
+      <div class="calc-result">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+          <span style="color:var(--muted);font-size:13px">רווח/הפסד</span>
+          <span class="stat-v" id="c-pl">+1,224 ₪</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px">
+          <span>התקדמות לT2 (570 ₪)</span><span id="c-progLbl">100%</span>
+        </div>
+        <div class="prog"><i id="c-progBar" style="width:0"></i></div>
+        <div style="margin-top:10px;font-size:12px;color:var(--muted)">
+          מרחק לT2: <span id="c-t2dist" style="color:var(--text);font-weight:700"></span> &nbsp;|&nbsp;
+          מרחק לT3: <span id="c-t3dist" style="color:var(--text);font-weight:700"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="sec">📊 <b>סולם רמות</b></p>
+      <svg id="ladder-svg" viewBox="0 0 420 440" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block"></svg>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:7px">
+        <span>🟡 כניסה</span><span>🟢 יעד</span><span>🔴 סטופ</span><span>🔵 נוכחי</span><span>⬜ ויק</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CANDLESTICK CHART -->
+  <div class="card" style="margin-bottom:13px">
+    <p class="sec">🕯️ <b>נרות יומיים — מאז הקטליסט (02/06–12/06)</b> <span style="color:var(--muted)">&nbsp;·&nbsp;ווליום כ-75K ממוצע</span></p>
+    <svg id="chart-svg" viewBox="0 0 900 220" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="x-labels" id="x-labels"></div>
+  </div>
+
+  <!-- TARGETS -->
+  <p class="sec" style="margin:16px 2px 8px">🎯 <b>שלבי T — סטטוס חי</b></p>
+  <div class="g g-3" style="margin-bottom:13px">
+    <div class="card tc" data-t="516">
+      <span class="badge" id="b-516">טוען...</span>
+      <div class="t-name">T1 — יעד ראשון</div>
+      <div class="t-price">516 ₪</div>
+      <div class="t-meta">+5.5% מהכניסה · <b id="tp-516">+540 ₪</b></div>
+      <div class="t-meta" style="margin-top:4px">נפרץ ב-10/06 ✓ — עכשיו תמיכה</div>
+      <div class="prog"><i id="pb-516" style="width:0"></i></div>
+    </div>
+    <div class="card tc" data-t="570">
+      <span class="badge" id="b-570">טוען...</span>
+      <div class="t-name">T2 — יעד עיקרי</div>
+      <div class="t-price">570 ₪</div>
+      <div class="t-meta">+16.6% מהכניסה · <b id="tp-570">+1,620 ₪</b></div>
+      <div class="t-meta" style="margin-top:4px">התנגדות 569–573 (6–8/05)</div>
+      <div class="prog"><i id="pb-570" style="width:0"></i></div>
+    </div>
+    <div class="card tc" data-t="607">
+      <span class="badge" id="b-607">טוען...</span>
+      <div class="t-name">T3 — שיא כל הזמנים</div>
+      <div class="t-price">607 ₪</div>
+      <div class="t-meta">+24.1% מהכניסה · <b id="tp-607">+2,360 ₪</b></div>
+      <div class="t-meta" style="margin-top:4px">ATH אזור 607–616 ₪</div>
+      <div class="prog"><i id="pb-607" style="width:0"></i></div>
+    </div>
+  </div>
+
+  <!-- STOP + CHECKLIST -->
+  <div class="g g-2" style="margin-bottom:13px">
+    <div class="card">
+      <p class="sec">🛡️ <b>מנהל סטופ</b> — נעל רווח</p>
+      <div class="stop-btns">
+        <button class="sbtn" data-stop="489">Breakeven<small>489 ₪</small></button>
+        <button class="sbtn active" data-stop="528">קטליסט-Floor<small>528 ₪ (מומלץ)</small></button>
+        <button class="sbtn" data-stop="540">טייט<small>540 ₪</small></button>
+      </div>
+      <div class="calc-result">
+        <div style="color:var(--muted);font-size:13px;margin-bottom:5px">אם תיגע בסטופ:</div>
+        <div class="stat-v" id="stop-pl" style="font-size:24px">...</div>
+        <div id="stop-note" style="color:var(--muted);font-size:12.5px;margin-top:7px"></div>
+      </div>
+      <p style="color:var(--muted);font-size:12.5px;margin-top:11px;line-height:1.6">
+        סטופ ב-<b style="color:var(--text)">528 ₪</b> = מתחת לסגירת יום הקטליסט (528.90) — הרצפה שנוצרה ב-02/06.
+        סגירה מתחת לה = המבנה נשבר.
+      </p>
+    </div>
+
+    <div class="card">
+      <p class="sec">✅ <b>צ'קליסט — מה לעשות עכשיו</b></p>
+      <ul class="ck" id="ck">
+        <li data-id="a1"><span class="cb">✓</span><span>העלה סטופ ל-<b>528 ₪</b> (מתחת קטליסט-floor)</span><span class="tag do">פעולה</span></li>
+        <li data-id="a2"><span class="cb">✓</span><span>החזק ל-<b>T2 (570 ₪)</b> — 3.6% בלבד מהמחיר הנוכחי</span><span class="tag do">פעולה</span></li>
+        <li data-id="a3"><span class="cb">✓</span><span>ב-T2: מכור <b>50% מהפוזיציה</b>, העלה סטופ ל-550 על השאר</span><span class="tag do">פעולה</span></li>
+        <li data-id="a4"><span class="cb">✓</span><span>ב-T3 (607): שקול לצאת לגמרי / לקיחת רווח מלאה</span><span class="tag do">פעולה</span></li>
+        <li data-id="a5"><span class="cb">✓</span><span>אל תוסיף כאן — ווליום היום (46K) נמוך לעוצמת המהלך</span><span class="tag warn">זהירות</span></li>
+        <li data-id="a6"><span class="cb">✓</span><span>סגירה מתחת 528 = הקטן פוזיציה מיידית</span><span class="tag watch">מעקב</span></li>
+        <li data-id="a7"><span class="cb">✓</span><span>שים לב ל-retest של 550 כתמיכה חדשה אחרי הפריצה</span><span class="tag watch">מעקב</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- CATALYST + STRUCTURE -->
+  <div class="g g-2" style="margin-bottom:13px">
+    <div class="card">
+      <p class="sec">📰 <b>הקטליסט — 02/06/2026</b></p>
+      <div style="font-size:13.5px;line-height:2">
+        <div>📦 <b>$105M+ הזמנות AI</b> ביום אחד → +14%</div>
+        <div>• $55M מ-OSAT דרג-1 · $50M+ מערכות <b>Hawk</b> ליצרן HBM</div>
+        <div>• אספקה 2027 — מאריך צבר ונראות הכנסות</div>
+        <div>📈 Q2'26 guidance: $129–131M · H2'26: <b>+25%</b></div>
+        <div>🎯 אנליסטים: <b>Buy</b> · יעד $185 (NASDAQ)</div>
+      </div>
+    </div>
+    <div class="card">
+      <p class="sec">🏗️ <b>מבנה טכני</b> — מה השתנה</p>
+      <div style="font-size:13.5px;line-height:2">
+        <div>02/06: פריצה +14% על ווליום 205K → רצפה חדשה 528.90 ₪</div>
+        <div>03–11/06: קונסולידציה <b>503–519 ₪</b> — 7 ימי דיגול</div>
+        <div>10/06: Shakeout ויק ל-<b>477.70 ₪</b> (מתחת לכניסה!) → החזיר</div>
+        <div>12/06: פריצת קונסולידציה ← <b>TODAY +7.7%</b></div>
+        <div>⚠️ ווליום היום 46K — נמוך. דרוש אישור בנרות הבאים</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    ⚠️ ניתוח טכני + חדשותי בלבד — <b>לא ייעוץ השקעות מורשה</b>. ההחלטה והאחריות שלך לבדך.<br>
+    מקורות: TipRanks · Motley Fool · Simply Wall St · SEC 6-K · גלובס · נתוני OHLCV 2026-06-12
+  </footer>
+</div>
+
+<script>
+// ─── DATA ────────────────────────────────────────────────
+const CANDLES = [
+  {d:'02/06',o:463.5,h:531.9,l:458.2,c:528.9,v:205725,cat:true},
+  {d:'03/06',o:532.0,h:535.8,l:513.7,c:523.1,v:99573},
+  {d:'04/06',o:523.1,h:525.3,l:502.0,c:513.0,v:79331},
+  {d:'05/06',o:513.0,h:518.6,l:509.6,c:515.8,v:40976},
+  {d:'08/06',o:484.4,h:506.8,l:484.1,c:503.8,v:80373},
+  {d:'09/06',o:503.8,h:524.3,l:497.9,c:509.7,v:60373},
+  {d:'10/06',o:500.0,h:520.6,l:477.7,c:518.1,v:128236,wick:true},
+  {d:'11/06',o:500.2,h:520.0,l:500.0,c:510.9,v:69722},
+  {d:'12/06',o:535.0,h:561.3,l:535.0,c:550.2,v:46909,today:true},
+];
+
+const LEVELS = [
+  {p:607,name:'T3 · ATH',t:'t'},
+  {p:570,name:'T2',t:'t'},
+  {p:550.2,name:'סגירה 12/06',t:'cur'},
+  {p:528.9,name:'קטליסט-floor 02/06',t:'floor'},
+  {p:516,name:'T1 ✓',t:'t'},
+  {p:489,name:'כניסה',t:'entry'},
+  {p:477.7,name:'ויק 10/06',t:'wick'},
+  {p:440,name:'סטופ מקורי',t:'stop'},
+];
+const ENTRY=489, TARGETS=[516,570,607];
+
+// ─── UTILS ───────────────────────────────────────────────
+const $=s=>document.querySelector(s);
+const fmtN=n=>(n>=0?'+':'')+Math.round(Math.abs(n)).toLocaleString('he-IL')*(n<0?-1:1)+' ₪';
+const fmtILS=n=>(n>=0?'+':'')+Math.round(n).toLocaleString('he-IL')+' ₪';
+const fmtP=n=>n.toFixed(2).replace(/\.0+$/,'');
+const cls=n=>n>=0?'pos':'neg';
+let activeStop=528;
+
+// ─── CANDLESTICK CHART ───────────────────────────────────
+function drawChart(){
+  const W=900, H=220, PAD={t:20,b:10,l:30,r:20};
+  const IW=W-PAD.l-PAD.r, IH=H-PAD.t-PAD.b;
+  const prices=[...CANDLES.flatMap(c=>[c.h,c.l])];
+  const mn=Math.min(...prices)-8, mx=Math.max(...prices)+8;
+  const yScale=p=>PAD.t+IH*(1-(p-mn)/(mx-mn));
+  const n=CANDLES.length;
+  const bw=Math.floor(IW/n*0.55);
+  const cx=i=>PAD.l+Math.round((i+0.5)*IW/n);
+
+  let s='';
+  // horizontal grid lines
+  [520,540,560].forEach(p=>{
+    const y=yScale(p);
+    s+=`<line x1="${PAD.l}" y1="${y}" x2="${W-PAD.r}" y2="${y}" stroke="#1a2d44" stroke-width="1" stroke-dasharray="4 4"/>`;
+    s+=`<text x="${PAD.l-4}" y="${y+4}" text-anchor="end" font-size="9.5" fill="#4a6280">${p}</text>`;
+  });
+  // entry line
+  const eY=yScale(ENTRY);
+  s+=`<line x1="${PAD.l}" y1="${eY}" x2="${W-PAD.r}" y2="${eY}" stroke="rgba(246,201,77,.5)" stroke-width="1" stroke-dasharray="6 3"/>`;
+
+  // candles
+  CANDLES.forEach((c,i)=>{
+    const x=cx(i), yO=yScale(c.o), yC=yScale(c.c), yH=yScale(c.h), yL=yScale(c.l);
+    const bull=c.c>=c.o;
+    const col=c.today?'var(--cyan)':c.cat?'var(--gold)':c.wick?'var(--orange)':bull?'var(--green)':'var(--red)';
+    const by=Math.min(yO,yC), bh=Math.max(1,Math.abs(yO-yC));
+    s+=`<line x1="${x}" y1="${yH}" x2="${x}" y2="${yL}" stroke="${col}" stroke-width="1.5"/>`;
+    s+=`<rect x="${x-bw/2}" y="${by}" width="${bw}" height="${bh}" fill="${col}" rx="2" opacity="0.9"/>`;
+    if(c.wick){
+      s+=`<text x="${x}" y="${yScale(c.l)-5}" text-anchor="middle" font-size="9" fill="var(--orange)">477.7</text>`;
+    }
+    if(c.today){
+      s+=`<text x="${x}" y="${yScale(c.h)-5}" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--cyan)">550.2</text>`;
+    }
+  });
+  $('#chart-svg').innerHTML=s;
+
+  // x labels
+  const lb=$('#x-labels');
+  lb.innerHTML='';
+  CANDLES.forEach(c=>{
+    const sp=document.createElement('span');
+    sp.textContent=c.d;
+    sp.style.color=c.today?'var(--cyan)':c.cat?'var(--gold)':c.wick?'var(--orange)':'';
+    sp.style.fontWeight=c.today||c.cat?'700':'';
+    lb.appendChild(sp);
+  });
+}
+
+// ─── LADDER ──────────────────────────────────────────────
+function drawLadder(cur, entry){
+  const LMN=420, LMX=640, SVH=440, TP=18, BT=18;
+  const yOf=p=>TP+(SVH-TP-BT)*(1-(p-LMN)/(LMX-LMN));
+  const X0=72, X1=265;
+  let s='';
+  // fill between entry and cur
+  const yE=yOf(entry), yC=yOf(Math.max(LMN,Math.min(LMX,cur)));
+  const fillT=Math.min(yE,yC), fillH=Math.abs(yE-yC);
+  s+=`<rect x="${X0}" y="${fillT}" width="${X1-X0}" height="${fillH}" fill="${cur>=entry?'rgba(40,216,130,.15)':'rgba(255,77,104,.15)'}" rx="3"/>`;
+  s+=`<line x1="${X0}" y1="${TP}" x2="${X0}" y2="${SVH-BT}" stroke="#1a2d44" stroke-width="2"/>`;
+
+  LEVELS.forEach(l=>{
+    const y=yOf(l.p);
+    if(y<TP-5||y>SVH-BT+5) return;
+    let col='#2e4460', sw=1.3, da='';
+    if(l.t==='t') {col='var(--green)'; da='stroke-dasharray="5 3"';}
+    if(l.t==='entry') {col='var(--gold)'; sw=2.2;}
+    if(l.t==='stop') {col='var(--red)';}
+    if(l.t==='floor') {col='var(--cyan)'; da='stroke-dasharray="3 3"';}
+    if(l.t==='wick') {col='var(--orange)'; da='stroke-dasharray="2 4"';}
+    if(l.t==='cur') {col='var(--cyan)'; sw=1;}
+    s+=`<line x1="${X0}" y1="${y}" x2="${X1}" y2="${y}" stroke="${col}" stroke-width="${sw}" ${da}/>`;
+    s+=`<text x="${X0-6}" y="${y+4}" text-anchor="end" font-size="11" font-weight="700" fill="${col}">${fmtP(l.p)}</text>`;
+    s+=`<text x="${X1+8}" y="${y+4}" text-anchor="start" font-size="11" fill="var(--muted)">${l.name}</text>`;
+  });
+
+  // current marker pill
+  const cc=Math.max(LMN,Math.min(LMX,cur));
+  const ym=yOf(cc);
+  s+=`<line x1="${X0-6}" y1="${ym}" x2="${X1+2}" y2="${ym}" stroke="var(--cyan)" stroke-width="2.5"/>`;
+  const pw=74;
+  s+=`<rect x="${X0-6-pw}" y="${ym-13}" width="${pw}" height="26" rx="13" fill="var(--cyan)"/>`;
+  s+=`<text x="${X0-6-pw/2}" y="${ym+5}" text-anchor="middle" font-size="12" font-weight="900" fill="#041a1a">${fmtP(cc)} ₪</text>`;
+  s+=`<polygon points="${X1+2},${ym-5} ${X1+11},${ym} ${X1+2},${ym+5}" fill="var(--cyan)"/>`;
+  $('#ladder-svg').innerHTML=s;
+}
+
+// ─── TARGETS ─────────────────────────────────────────────
+function updateTargets(cur, entry, shares){
+  TARGETS.forEach(t=>{
+    const profit=(t-entry)*shares;
+    $(`#tp-${t}`).textContent=fmtILS(profit);
+    const pct=(t-entry)/entry;
+    // progress from entry to target
+    const done=Math.max(0,Math.min(1,(cur-entry)/(t-entry)));
+    $(`#pb-${t}`).style.width=(done*100)+'%';
+    const b=$(`#b-${t}`);
+    if(cur>=t){b.textContent='הושג ✅';b.className='badge b-hit';}
+    else if(cur>=t*0.97){b.textContent='קרוב מאוד 🔥';b.className='badge b-near';}
+    else{b.textContent='ממתין';b.className='badge b-wait';}
+  });
+}
+
+// ─── STOP ────────────────────────────────────────────────
+function updateStop(entry, shares){
+  const pl=(activeStop-entry)*shares;
+  const el=$('#stop-pl');
+  el.textContent=fmtILS(pl);
+  el.className='stat-v '+cls(pl)+ ' ';
+  el.style.fontSize='24px';
+  $('#stop-note').innerHTML=`מרחק מ-550.20: <b style="color:var(--text)">${((550.2-activeStop)/550.2*100).toFixed(1)}%</b> &nbsp;·&nbsp; `+(pl>=0?'<span style="color:var(--green)">נועל רווח ✓</span>':'<span style="color:var(--red)">מגביל הפסד</span>');
+}
+
+// ─── MASTER UPDATE ───────────────────────────────────────
+function update(){
+  const entry=parseFloat($('#entry').value)||489;
+  const shares=parseFloat($('#shares').value)||20;
+  const cur=parseFloat($('#cur').value)||550.2;
+  const pl=(cur-entry)*shares;
+  const pct=(cur-entry)/entry*100;
+
+  $('#s-cur').textContent=fmtP(cur)+' ₪';
+  $('#s-pl').textContent=fmtILS(pl); $('#s-pl').className='stat-v '+cls(pl);
+  $('#s-pct').textContent=(pct>=0?'+':'')+pct.toFixed(1)+'%'; $('#s-pct').className='stat-v '+cls(pct);
+  $('#c-pl').textContent=fmtILS(pl); $('#c-pl').className='stat-v '+cls(pl);
+
+  const prog2=Math.max(0,Math.min(1,(cur-entry)/(570-entry)));
+  $('#c-progBar').style.width=(prog2*100)+'%';
+  $('#c-progLbl').textContent=Math.round(prog2*100)+'%';
+  $('#c-t2dist').textContent=(570>cur?'+':'')+Math.abs(570-cur).toFixed(1)+' ₪ ('+((570-cur)/cur*100).toFixed(1)+'%)';
+  $('#c-t3dist').textContent=(Math.abs(607-cur)).toFixed(1)+' ₪ ('+((607-cur)/cur*100).toFixed(1)+'%)';
+
+  drawLadder(cur, entry);
+  updateTargets(cur, entry, shares);
+  updateStop(entry, shares);
+}
+
+// ─── WIRE UP ─────────────────────────────────────────────
+$('#sl').addEventListener('input',e=>{$('#cur').value=e.target.value;update();});
+$('#cur').addEventListener('input',e=>{$('#sl').value=e.target.value;update();});
+['entry','shares'].forEach(id=>$(('#'+id)).addEventListener('input',update));
+
+document.querySelectorAll('.sbtn').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.sbtn').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  activeStop=parseFloat(b.dataset.stop);
+  update();
+}));
+
+// checklist persistence
+const CK_KEY='camt_ck_20260612';
+let ckSaved=JSON.parse(localStorage.getItem(CK_KEY)||'{}');
+document.querySelectorAll('#ck li').forEach(li=>{
+  if(ckSaved[li.dataset.id]) li.classList.add('done');
+  li.addEventListener('click',()=>{
+    li.classList.toggle('done');
+    ckSaved[li.dataset.id]=li.classList.contains('done');
+    localStorage.setItem(CK_KEY,JSON.stringify(ckSaved));
+  });
+});
+
+// ─── INIT ────────────────────────────────────────────────
+drawChart();
+update();
+</script>
+</body>
+</html>

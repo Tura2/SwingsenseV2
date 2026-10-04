@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>קמטק (CAMT) · תוכנית עסקה אינטראקטיבית</title>
+<style>
+  :root{
+    --bg:#0a0f1c; --panel:#121b2e; --panel2:#1a2540; --line:#26314c;
+    --text:#e7eef9; --muted:#8ba1c2; --green:#27d27f; --red:#ff5470;
+    --gold:#f5c84b; --blue:#4aa8ff; --cyan:#38d0e0;
+    --shadow:0 8px 30px rgba(0,0,0,.45);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:radial-gradient(1200px 600px at 80% -10%,#16243f 0,var(--bg) 55%);
+    color:var(--text); font-family:'Heebo','Segoe UI',system-ui,-apple-system,Arial,sans-serif;
+    padding:18px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+  header.top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#1f6feb,#27d27f);
+    display:grid;place-items:center;font-weight:800;font-size:18px;box-shadow:var(--shadow)}
+  h1{font-size:20px;margin:0}
+  .sub{color:var(--muted);font-size:13px}
+  .live{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(39,210,127,.6);animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(39,210,127,.5)}70%{box-shadow:0 0 0 10px rgba(39,210,127,0)}100%{box-shadow:0 0 0 0 rgba(39,210,127,0)}}
+
+  .grid{display:grid;gap:14px}
+  .cards4{grid-template-columns:repeat(4,1fr)}
+  .card{background:linear-gradient(180deg,var(--panel),#0f1830);border:1px solid var(--line);
+    border-radius:16px;padding:16px;box-shadow:var(--shadow)}
+  .stat .k{color:var(--muted);font-size:12px;margin-bottom:6px}
+  .stat .v{font-size:24px;font-weight:800;letter-spacing:.3px}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+
+  .two{grid-template-columns:1.05fr .95fr}
+  .panel-title{font-size:14px;color:var(--muted);margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .panel-title b{color:var(--text);font-weight:700}
+
+  label.fld{display:block;margin-bottom:12px}
+  label.fld span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  input[type=number]{width:100%;background:#0c1426;border:1px solid var(--line);color:var(--text);
+    border-radius:10px;padding:10px 12px;font-size:16px;font-weight:700;font-family:inherit}
+  input[type=range]{width:100%;accent-color:var(--blue);margin-top:4px}
+  .rangewrap{display:flex;align-items:center;gap:10px}
+  .rangewrap input[type=number]{width:110px}
+
+  /* Ladder */
+  .ladder svg{width:100%;height:auto;display:block}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
+  .legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:middle;margin-left:5px}
+
+  /* Targets */
+  .tcards{grid-template-columns:repeat(3,1fr)}
+  .tcard{position:relative;overflow:hidden}
+  .tcard .badge{position:absolute;top:12px;left:12px;font-size:11px;padding:3px 9px;border-radius:999px;font-weight:700}
+  .b-hit{background:rgba(39,210,127,.16);color:var(--green);border:1px solid rgba(39,210,127,.4)}
+  .b-wait{background:rgba(139,161,194,.12);color:var(--muted);border:1px solid var(--line)}
+  .tcard .tname{font-size:13px;color:var(--gold);font-weight:800;margin-bottom:8px}
+  .tcard .tprice{font-size:26px;font-weight:800}
+  .tcard .tmeta{font-size:12px;color:var(--muted);margin-top:6px}
+  .tcard .tmeta b{color:var(--green)}
+
+  .progress{height:10px;background:#0c1426;border-radius:999px;overflow:hidden;border:1px solid var(--line);margin-top:6px}
+  .progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--green));width:0;transition:width .25s}
+
+  /* Stop manager */
+  .stopbtns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .stopbtn{flex:1;min-width:120px;background:#0c1426;border:1px solid var(--line);color:var(--text);
+    border-radius:12px;padding:10px;cursor:pointer;text-align:center;font-family:inherit;transition:.15s}
+  .stopbtn small{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+  .stopbtn:hover{border-color:var(--blue)}
+  .stopbtn.active{border-color:var(--green);background:rgba(39,210,127,.1)}
+  .stopout{font-size:14px}
+  .stopout .big{font-size:22px;font-weight:800}
+
+  /* Checklist */
+  ul.checks{list-style:none;margin:0;padding:0}
+  ul.checks li{display:flex;gap:12px;align-items:flex-start;padding:11px 12px;border:1px solid var(--line);
+    border-radius:12px;margin-bottom:9px;background:#0d1628;cursor:pointer;transition:.15s}
+  ul.checks li:hover{border-color:var(--blue)}
+  ul.checks li.done{opacity:.5;text-decoration:line-through;border-color:rgba(39,210,127,.35)}
+  .box{width:22px;height:22px;border-radius:7px;border:2px solid var(--muted);flex:0 0 auto;display:grid;place-items:center;font-size:14px;color:transparent;margin-top:1px}
+  li.done .box{background:var(--green);border-color:var(--green);color:#06210f}
+  .tag{font-size:11px;padding:2px 8px;border-radius:6px;margin-inline-start:auto;white-space:nowrap}
+  .tag.do{background:rgba(74,168,255,.15);color:var(--blue)}
+  .tag.watch{background:rgba(245,200,75,.15);color:var(--gold)}
+  .tag.dont{background:rgba(255,84,112,.15);color:var(--red)}
+
+  /* Catalyst */
+  .news li{padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px}
+  .news li:last-child{border:0}
+  .news .em{color:var(--gold);font-weight:700}
+
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:18px;line-height:1.7}
+  a{color:var(--blue);text-decoration:none}
+  @media(max-width:860px){.cards4{grid-template-columns:repeat(2,1fr)}.two,.tcards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <div class="logo">קמ</div>
+      <div>
+        <h1>קמטק · CAMT.TA <span style="color:var(--muted);font-weight:400;font-size:14px">(1095264)</span></h1>
+        <div class="sub">תוכנית עסקה אינטראקטיבית · שלבי T וניהול מכאן</div>
+      </div>
+    </div>
+    <div class="live"><span class="dot"></span> נכון ל-03/06/2026 · ניתוח טכני+חדשותי</div>
+  </header>
+
+  <!-- HERO STATS -->
+  <div class="grid cards4" style="margin-bottom:14px">
+    <div class="card stat"><div class="k">מחיר כניסה</div><div class="v">489.00 ₪</div></div>
+    <div class="card stat"><div class="k">מחיר נוכחי</div><div class="v" id="curStat">534.10 ₪</div></div>
+    <div class="card stat"><div class="k">רווח / הפסד</div><div class="v" id="plStat">+902 ₪</div></div>
+    <div class="card stat"><div class="k">תשואה</div><div class="v" id="pctStat">+9.2%</div></div>
+  </div>
+
+  <!-- CALCULATOR + LADDER -->
+  <div class="grid two" style="margin-bottom:14px">
+    <div class="card">
+      <p class="panel-title">🧮 <b>מחשבון רווח חי</b> — שנה את הערכים</p>
+      <label class="fld"><span>מחיר כניסה (₪)</span><input type="number" id="entry" value="489" step="0.1"></label>
+      <label class="fld"><span>כמות מניות</span><input type="number" id="shares" value="20" step="1"></label>
+      <label class="fld"><span>מחיר נוכחי (₪) — גרור לסימולציה</span>
+        <div class="rangewrap">
+          <input type="range" id="curRange" min="430" max="620" step="0.1" value="534.1">
+          <input type="number" id="cur" value="534.1" step="0.1">
+        </div>
+      </label>
+      <div class="card" style="background:#0c1426;margin-top:4px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span style="color:var(--muted);font-size:13px">רווח/הפסד בפוזיציה</span>
+          <span class="v" id="plBig" style="font-size:28px;font-weight:800">+902 ₪</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:13px;color:var(--muted)">
+          <span>התקדמות ל-T2 (570 ₪)</span><span id="progLbl">56%</span>
+        </div>
+        <div class="progress"><i id="progBar"></i></div>
+      </div>
+    </div>
+
+    <div class="card ladder">
+      <p class="panel-title">📊 <b>סולם רמות</b> — איפה אתה במפה</p>
+      <svg id="ladder" viewBox="0 0 380 560" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="legend">
+        <span><i style="background:var(--gold)"></i>כניסה</span>
+        <span><i style="background:var(--green)"></i>יעדים</span>
+        <span><i style="background:var(--red)"></i>סטופ</span>
+        <span><i style="background:var(--cyan)"></i>נוכחי</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TARGETS -->
+  <p class="panel-title" style="margin:18px 4px 8px">🎯 <b>שלבי היעד (T-Steps)</b> — סטטוס מתעדכן לפי הסימולציה</p>
+  <div class="grid tcards" style="margin-bottom:14px">
+    <div class="card tcard" data-target="516">
+      <div class="badge b-wait" id="badge-516">ממתין</div>
+      <div class="tname">T1 — יעד ראשון</div>
+      <div class="tprice">516 ₪</div>
+      <div class="tmeta">+5.5% מהכניסה · <b id="amt-516">+540 ₪</b> בפוזיציה</div>
+      <div class="tmeta" style="margin-top:4px">התנגדות שכבר נפרצה ✓</div>
+    </div>
+    <div class="card tcard" data-target="570">
+      <div class="badge b-wait" id="badge-570">ממתין</div>
+      <div class="tname">T2 — יעד עיקרי</div>
+      <div class="tprice">570 ₪</div>
+      <div class="tmeta">+16.6% מהכניסה · <b id="amt-570">+1,620 ₪</b> בפוזיציה</div>
+      <div class="tmeta" style="margin-top:4px">אזור התנגדות 569–573 (6-8/05)</div>
+    </div>
+    <div class="card tcard" data-target="607">
+      <div class="badge b-wait" id="badge-607">ממתין</div>
+      <div class="tname">T3 — יעד מתיחה</div>
+      <div class="tprice">607 ₪</div>
+      <div class="tmeta">+24.1% מהכניסה · <b id="amt-607">+2,360 ₪</b> בפוזיציה</div>
+      <div class="tmeta" style="margin-top:4px">אזור שיא כל הזמנים (11/05, 24/04)</div>
+    </div>
+  </div>
+
+  <!-- STOP MANAGER + CHECKLIST -->
+  <div class="grid two" style="margin-bottom:14px">
+    <div class="card">
+      <p class="panel-title">🛡️ <b>מנהל סטופ</b> — נעל את הרווח</p>
+      <div class="stopbtns">
+        <button class="stopbtn" data-stop="440">מקורי<small>440 ₪</small></button>
+        <button class="stopbtn" data-stop="489">Breakeven<small>489 ₪</small></button>
+        <button class="stopbtn active" data-stop="512">נעילת רווח<small>512 ₪ (מומלץ)</small></button>
+      </div>
+      <div class="card stopout" style="background:#0c1426">
+        <div style="color:var(--muted);font-size:13px;margin-bottom:4px">אם תיגע בסטופ הזה:</div>
+        <div class="big" id="stopPL">+460 ₪</div>
+        <div id="stopNote" style="color:var(--muted);font-size:12.5px;margin-top:6px"></div>
+      </div>
+      <p style="color:var(--muted);font-size:12.5px;margin:12px 0 0">
+        העלאת הסטופ ל-<b style="color:var(--text)">512 ₪</b> (מתחת לרצפה החדשה 528.90) הופכת את העסקה ל-<b style="color:var(--green)">risk-free</b> — במקרה הגרוע יוצא ברווח.
+      </p>
+    </div>
+
+    <div class="card">
+      <p class="panel-title">✅ <b>מה לעשות מכאן</b> — לחץ לסימון</p>
+      <ul class="checks" id="checklist">
+        <li data-id="c1"><span class="box">✓</span><span>הרם סטופ ל-<b>512 ₪</b> → עסקה risk-free</span><span class="tag do">פעולה</span></li>
+        <li data-id="c2"><span class="box">✓</span><span>החזק ל-<b>T2 (570 ₪)</b> = עוד כ-+7% מכאן</span><span class="tag do">פעולה</span></li>
+        <li data-id="c3"><span class="box">✓</span><span>אל תוסיף ואל תרדוף — overbought אחרי +14% ביום</span><span class="tag dont">הימנע</span></li>
+        <li data-id="c4"><span class="box">✓</span><span>עקוב אחרי retest של <b>528.90</b> (הרצפה החדשה)</span><span class="tag watch">מעקב</span></li>
+        <li data-id="c5"><span class="box">✓</span><span>סגירה יומית מתחת 528.90 → שקול הקטנת פוזיציה</span><span class="tag watch">מעקב</span></li>
+        <li data-id="c6"><span class="box">✓</span><span>ב-<b>T3 (607 ₪)</b> → שקול מכירה חלקית / לקיחת רווח</span><span class="tag do">פעולה</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- CATALYST -->
+  <div class="card news" style="margin-bottom:14px">
+    <p class="panel-title">📰 <b>הקטליסט</b> — למה זה קרה (02/06/2026)</p>
+    <ul style="list-style:none;padding:0;margin:0">
+      <li>📦 <span class="em">הזמנות של 105 מיליון $+</span> ממוקדות-AI — היום של נר ה-+14%</li>
+      <li>• <b>$55M</b> מ-OSAT דרג-1 (קבלן אריזה/בדיקה) · <b>$50M+</b> מערכות <b>Hawk</b> ליצרן HBM מוביל</li>
+      <li>🗓️ אספקה ל-<span class="em">2027</span> → מאריך את צבר ההזמנות ונראות ההכנסות</li>
+      <li>📈 שיא Q4'25 $128M · שנת 2025 $496M · צפי Q2'26 $129–131M · חצי שני +25%</li>
+      <li>🎯 אנליסטים: <span class="em">Buy</span>, יעד $185 (NASDAQ) — מרמז על המשך אפסייד</li>
+    </ul>
+  </div>
+
+  <footer>
+    ⚠️ זו אנליזה טכנית+חדשותית להמחשה — <b>לא ייעוץ השקעות מורשה</b>. ההחלטה והאחריות שלך.<br>
+    מקורות: TipRanks · StockTitan · Motley Fool · Simply Wall St · גלובס · נתוני OHLCV עד 03/06/2026
+  </footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = n => (n>=0?'+':'') + Math.round(n).toLocaleString('he-IL') + ' ₪';
+const fmtP = n => n.toFixed(2).replace(/\.00$/,'');
+const cls = n => n>=0 ? 'pos' : 'neg';
+
+// --- Ladder levels ---
+const LMIN=430, LMAX=620, SVGH=560, TOP=22, BOT=30;
+const yOf = p => TOP + (SVGH-TOP-BOT) * (1 - (p-LMIN)/(LMAX-LMIN));
+const levels = [
+  {p:616,name:'שיא 24/04',type:'res'},
+  {p:607,name:'T3 · אזור ATH',type:'t'},
+  {p:590,name:'מקור השבירה 12/05',type:'res'},
+  {p:570,name:'T2',type:'t'},
+  {p:550,name:'התנגדות קרובה',type:'res'},
+  {p:528.9,name:'רצפה חדשה (12/05=02/06)',type:'floor'},
+  {p:516,name:'T1 ✓',type:'t'},
+  {p:489,name:'כניסה',type:'entry'},
+  {p:440,name:'סטופ מקורי',type:'stop'},
+];
+
+function renderLadder(cur, entry){
+  const X0=70, X1=300; // track horizontal span
+  let s = '';
+  // profit/loss fill between entry and current
+  const yE=yOf(entry), yC=yOf(Math.max(LMIN,Math.min(LMAX,cur)));
+  const top=Math.min(yE,yC), h=Math.abs(yE-yC);
+  const fill = cur>=entry ? 'rgba(39,210,127,.18)' : 'rgba(255,84,112,.18)';
+  s += `<rect x="${X0}" y="${top}" width="${X1-X0}" height="${h}" fill="${fill}" rx="4"/>`;
+  // track baseline
+  s += `<line x1="${X0}" y1="${TOP}" x2="${X0}" y2="${SVGH-BOT}" stroke="#1c2840" stroke-width="2"/>`;
+
+  // level lines
+  levels.forEach(l=>{
+    const y=yOf(l.p);
+    let col = '#46587a';
+    if(l.type==='t') col='var(--green)';
+    if(l.type==='entry') col='var(--gold)';
+    if(l.type==='stop') col='var(--red)';
+    if(l.type==='floor') col='var(--cyan)';
+    const dash = (l.type==='t'||l.type==='entry') ? 'stroke-dasharray="5 4"' : '';
+    s += `<line x1="${X0}" y1="${y}" x2="${X1}" y2="${y}" stroke="${col}" stroke-width="${l.type==='entry'?2.2:1.4}" ${dash} opacity="${l.type==='res'?.5:.9}"/>`;
+    s += `<text x="${X0-8}" y="${y+4}" text-anchor="end" font-size="12" font-weight="700" fill="${col}">${fmtP(l.p)}</text>`;
+    s += `<text x="${X1+8}" y="${y+4}" text-anchor="start" font-size="11.5" fill="var(--muted)">${l.name}</text>`;
+  });
+
+  // current marker
+  const ccur = Math.max(LMIN,Math.min(LMAX,cur));
+  const yM=yOf(ccur);
+  s += `<line x1="${X0-4}" y1="${yM}" x2="${X1}" y2="${yM}" stroke="var(--cyan)" stroke-width="2.5"/>`;
+  // pill
+  const pillW=72, pillX=X0-4-pillW;
+  s += `<rect x="${Math.max(2,pillX)}" y="${yM-12}" width="${pillW}" height="24" rx="12" fill="var(--cyan)"/>`;
+  s += `<text x="${Math.max(2,pillX)+pillW/2}" y="${yM+5}" text-anchor="middle" font-size="12.5" font-weight="800" fill="#05222a">${fmtP(ccur)} ₪</text>`;
+  // triangle
+  s += `<polygon points="${X1},${yM-5} ${X1+9},${yM} ${X1},${yM+5}" fill="var(--cyan)"/>`;
+
+  $('#ladder').innerHTML = s;
+}
+
+// --- Targets ---
+const targets=[516,570,607];
+function renderTargets(cur, entry, shares){
+  targets.forEach(t=>{
+    const amt=(t-entry)*shares;
+    $('#amt-'+t).textContent = fmt(amt);
+    const b=$('#badge-'+t);
+    if(cur>=t){ b.textContent='הושג ✅'; b.className='badge b-hit'; }
+    else { b.textContent='ממתין'; b.className='badge b-wait'; }
+  });
+}
+
+// --- Stop manager ---
+let activeStop=512;
+function renderStop(entry, shares, cur){
+  const pl=(activeStop-entry)*shares;
+  const el=$('#stopPL');
+  el.textContent=fmt(pl);
+  el.className='big '+cls(pl);
+  const dist=((cur-activeStop)/cur*100);
+  $('#stopNote').innerHTML = `מרחק מהמחיר הנוכחי: <b style="color:var(--text)">${dist.toFixed(1)}%</b> · ` +
+    (pl>=0?'נועל רווח 🟢':'מגביל הפסד 🔴');
+}
+
+// --- Master recompute ---
+function update(){
+  const entry=parseFloat($('#entry').value)||0;
+  const shares=parseFloat($('#shares').value)||0;
+  const cur=parseFloat($('#cur').value)||0;
+
+  const pl=(cur-entry)*shares;
+  const pct=entry? (cur-entry)/entry*100 : 0;
+
+  $('#curStat').textContent=fmtP(cur)+' ₪';
+  $('#plStat').textContent=fmt(pl); $('#plStat').className='v '+cls(pl);
+  $('#pctStat').textContent=(pct>=0?'+':'')+pct.toFixed(1)+'%'; $('#pctStat').className='v '+cls(pct);
+  $('#plBig').textContent=fmt(pl); $('#plBig').className='v '+cls(pl);
+
+  // progress entry -> T2(570)
+  const prog=Math.max(0,Math.min(1,(cur-entry)/(570-entry)));
+  $('#progBar').style.width=(prog*100)+'%';
+  $('#progLbl').textContent=Math.round(prog*100)+'%';
+
+  renderLadder(cur, entry);
+  renderTargets(cur, entry, shares);
+  renderStop(entry, shares, cur);
+}
+
+// --- Wire up ---
+$('#curRange').addEventListener('input',e=>{$('#cur').value=e.target.value; update();});
+$('#cur').addEventListener('input',e=>{$('#curRange').value=e.target.value; update();});
+['entry','shares'].forEach(id=>$('#'+id).addEventListener('input',update));
+
+document.querySelectorAll('.stopbtn').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.stopbtn').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  activeStop=parseFloat(b.dataset.stop);
+  update();
+}));
+
+// Checklist with persistence
+const CK='camt_checks_20260603';
+let saved=JSON.parse(localStorage.getItem(CK)||'{}');
+document.querySelectorAll('#checklist li').forEach(li=>{
+  if(saved[li.dataset.id]) li.classList.add('done');
+  li.addEventListener('click',()=>{
+    li.classList.toggle('done');
+    saved[li.dataset.id]=li.classList.contains('done');
+    localStorage.setItem(CK,JSON.stringify(saved));
+  });
+});
+
+update();
+</script>
+</body>
+</html>

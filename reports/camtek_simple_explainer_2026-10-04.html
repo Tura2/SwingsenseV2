@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>קמטק — מה קורה עם המניה, בפשטות</title>
+<style>
+  :root{
+    --bg:#0b1220;--card:#131f33;--card2:#0f1a2b;--line:#23364f;
+    --text:#eef4fc;--muted:#90a8c6;--green:#35d98e;--red:#ff5e78;
+    --gold:#f9cf5c;--blue:#55b4ff;--purple:#b98cff;--orange:#ffa74f;
+    --sh:0 8px 32px rgba(0,0,0,.45);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);
+    font-family:'Heebo','Segoe UI',system-ui,Arial,sans-serif;
+    padding:18px;line-height:1.75;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:26px;font-weight:800;margin-bottom:6px;line-height:1.3}
+  .lead{color:var(--muted);font-size:15px;margin-bottom:26px}
+  h2{font-size:21px;font-weight:800;margin:34px 0 14px;display:flex;align-items:center;gap:10px}
+  h2 .n{width:32px;height:32px;border-radius:50%;background:var(--blue);color:#06182b;
+    display:grid;place-items:center;font-size:16px;font-weight:900;flex-shrink:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:20px;margin-bottom:14px;box-shadow:var(--sh)}
+  .q{background:var(--card2);border-right:4px solid var(--blue);border-radius:12px;
+    padding:16px 18px;margin:14px 0;font-size:15px}
+  .q .t{font-weight:800;color:var(--blue);margin-bottom:6px;font-size:15px}
+  .big{font-size:34px;font-weight:900;line-height:1.2}
+  .lbl{color:var(--muted);font-size:14px;margin-bottom:4px}
+  .up{color:var(--green)}.down{color:var(--red)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .analogy{background:rgba(249,207,92,.08);border:1px solid rgba(249,207,92,.3);
+    border-radius:12px;padding:15px 17px;margin:14px 0;font-size:15px}
+  .analogy b{color:var(--gold)}
+  svg{display:block;width:100%;height:auto;margin:10px 0}
+  /* scenario */
+  .sc{border-radius:16px;padding:20px;margin-bottom:13px;border:1px solid var(--line);background:var(--card)}
+  .sc .head{display:flex;align-items:center;gap:11px;margin-bottom:10px}
+  .sc .em{font-size:30px;line-height:1}
+  .sc h3{font-size:19px;font-weight:800}
+  .sc .odds{font-size:13px;padding:3px 11px;border-radius:999px;font-weight:700;margin-inline-start:auto;white-space:nowrap}
+  .o-hi{background:rgba(53,217,142,.16);color:var(--green)}
+  .o-mid{background:rgba(85,180,255,.16);color:var(--blue)}
+  .o-low{background:rgba(185,140,255,.16);color:var(--purple)}
+  .o-risk{background:rgba(255,94,120,.16);color:var(--red)}
+  .sc .price{font-size:27px;font-weight:900;margin:8px 0}
+  .sc p{font-size:15px;color:var(--text);line-height:1.75}
+  .sc .means{color:var(--muted);font-size:14px;margin-top:9px;padding-top:9px;border-top:1px dashed var(--line)}
+  /* calc */
+  input[type=range]{width:100%;accent-color:var(--blue);cursor:pointer;height:28px}
+  .out{background:var(--card2);border:1px solid var(--line);border-radius:13px;padding:17px;margin-top:12px;text-align:center}
+  .out .r1{font-size:14px;color:var(--muted)}
+  .out .r2{font-size:30px;font-weight:900;margin:5px 0;color:var(--gold)}
+  /* glossary */
+  .gl{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .gl dt{font-weight:800;color:var(--gold);margin-top:14px;font-size:15.5px}
+  .gl dt:first-child{margin-top:0}
+  .gl dd{color:var(--muted);font-size:14.5px;margin-top:3px}
+  .watch{background:rgba(255,167,79,.09);border:1px solid rgba(255,167,79,.35);
+    border-radius:14px;padding:19px;font-size:16px;line-height:1.8}
+  footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px;
+    padding-top:18px;border-top:1px solid var(--line);line-height:1.8}
+  @media(max-width:640px){.grid2{grid-template-columns:1fr}body{font-size:15px}h1{font-size:22px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>📊 קמטק — מה קורה עם המניה</h1>
+  <p class="lead">הסבר פשוט, בלי מונחים מקצועיים. נכון ל-4 באוקטובר 2026.</p>
+
+  <!-- 1 -->
+  <h2><span class="n">1</span> רגע, מה זו קמטק?</h2>
+  <div class="card">
+    <p>קמטק היא חברה ישראלית שמייצרת <b>מכונות בדיקה לשבבים</b>. תחשוב על זה כמו מצלמות בקרת-איכות במפעל: כל שבב שיוצא מהייצור עובר אצלה בדיקה שהכל תקין.</p>
+    <p style="margin-top:12px">למה זה חשוב עכשיו? כי כל העולם בונה מרכזי נתונים ל-<b>בינה מלאכותית</b>, וזה דורש כמויות עצומות של שבבים. יותר שבבים = יותר בדיקות = יותר מכונות של קמטק.</p>
+    <div class="analogy">⛏️ <b>אנלוגיה:</b> בבהלה לזהב, לא כולם מצאו זהב — אבל <b>מי שמכר את האתים הרוויח תמיד</b>. קמטק מוכרת את ה"אתים" של עולם ה-AI.</div>
+    <p>המניה נסחרת בשני מקומות: <b>בורסת תל אביב</b> ו<b>בורסת נאסד"ק בניו יורק</b>. זה יהיה חשוב בהמשך.</p>
+  </div>
+
+  <!-- 2 -->
+  <h2><span class="n">2</span> מה קרה ביום שישי?</h2>
+  <div class="grid2">
+    <div class="card">
+      <div class="lbl">מניית קמטק בניו יורק</div>
+      <div class="big up">+7.4%</div>
+      <p style="margin-top:8px;font-size:14px;color:var(--muted)">מ-$153.79 ל-$165.19 ביום אחד</p>
+    </div>
+    <div class="card">
+      <div class="lbl">מדד חברות השבבים (SOXX)</div>
+      <div class="big up">+2.2%</div>
+      <p style="margin-top:8px;font-size:14px;color:var(--muted)">כל הענף עלה — לא רק קמטק</p>
+    </div>
+  </div>
+
+  <div class="q">
+    <div class="t">❓ מה זה "מדד SOXX"?</div>
+    זו סל שמכיל את כל חברות השבבים הגדולות בעולם ביחד. במקום לבדוק 30 מניות בנפרד, מסתכלים על מספר אחד שמראה איך הענף כולו מרגיש. כשהמדד עולה — רוב חברות השבבים עולות.
+  </div>
+
+  <p style="margin-top:16px">שים לב לדבר חשוב: <b>קמטק עלתה פי שלושה מהמדד.</b> כלומר זה לא רק "כל הענף עלה" — היה כאן גם משהו ספציפי לקמטק.</p>
+
+  <!-- 3 -->
+  <h2><span class="n">3</span> התבנית בגרף: "דגל"</h2>
+  <div class="card">
+    <p>בניתוח גרפים יש צורות שחוזרות על עצמן. אחת הידועות נקראת <b>"דגל"</b>, והיא נראתה במדד השבבים בדיוק עכשיו.</p>
+
+    <div class="analogy">🏃 <b>אנלוגיה:</b> רץ שעושה ספרינט מהיר, אחר כך <b>עוצר לנשום</b> כמה שניות — ואז ממשיך לרוץ באותה מהירות. ה"ספרינט" הוא המוט, ה"נשימה" היא הדגל.</div>
+
+    <svg id="chart" viewBox="0 0 720 300" preserveAspectRatio="xMidYMid meet"></svg>
+
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin-top:6px">
+      <span>🟡 הספרינט (עלייה מהירה)</span>
+      <span>🔵 הנשימה (עצירה)</span>
+      <span>🟣 יום שישי — יצא לדרך שוב</span>
+    </div>
+
+    <p style="margin-top:18px">זה מה שקרה בפועל:</p>
+    <ul style="margin:10px 22px 0;font-size:15px;line-height:2">
+      <li><b>הספרינט:</b> המדד עלה מ-489 ל-573 תוך כשבועיים</li>
+      <li><b>הנשימה:</b> אחר כך דשדש במקום בין 552 ל-580 במשך 7 ימי מסחר</li>
+      <li><b>יום שישי:</b> פרץ למעלה וסגר ב-589 — "יצא לדרך שוב"</li>
+    </ul>
+
+    <div class="q" style="margin-top:18px">
+      <div class="t">🎯 ולאן זה אמור להגיע?</div>
+      לתבנית הזו יש כלל מדידה פשוט: לוקחים את גובה הספרינט הראשון (84 נקודות), ומוסיפים אותו לנקודת הפריצה.
+      <div style="background:#0b1526;border-radius:9px;padding:12px;margin-top:11px;text-align:center;font-size:17px;font-weight:800">
+        580 + 84 = <span style="color:var(--blue);font-size:21px">664</span>
+      </div>
+      <div style="margin-top:9px;font-size:14px">כלומר התבנית מצביעה על עוד <b style="color:var(--green)">כ-13% עלייה</b> במדד — אם היא תתממש.</div>
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <h2><span class="n">4</span> למה תל אביב "תדביק פער" ביום שני</h2>
+  <div class="card">
+    <p>כאן נכנס הדבר שהזכרנו בהתחלה — המניה נסחרת גם בתל אביב וגם בניו יורק.</p>
+
+    <div class="analogy">🍎 <b>אנלוגיה:</b> תפוח אחד שנמכר בשתי חנויות. אם בחנות אחת הוא עלה ל-10 ₪ בזמן שהשנייה הייתה סגורה — <b>כשהשנייה תיפתח, המחיר שם יתיישר.</b> אחרת אנשים פשוט יקנו בזול וימכרו ביוקר.</div>
+
+    <p style="margin-top:14px">בורסת תל אביב נסגרה ביום חמישי ב-<b>48,590</b> (זה המחיר באגורות — כלומר 485.90 ₪ למניה). אבל אחרי שהיא נסגרה, המניה בניו יורק <b>המשיכה לעלות</b> ב-7.4%.</p>
+
+    <div style="background:var(--card2);border-radius:13px;padding:17px;margin-top:16px;text-align:center">
+      <div style="font-size:14px;color:var(--muted)">הפתיחה הצפויה בתל אביב ביום שני</div>
+      <div style="font-size:33px;font-weight:900;color:var(--green);margin:8px 0">50,000 – 51,000</div>
+      <div style="font-size:14px;color:var(--muted)">כלומר עלייה של כ-3% עד 5% — רק כדי להשלים את מה שכבר קרה בניו יורק</div>
+    </div>
+    <p style="margin-top:14px;font-size:14.5px;color:var(--muted)">⚠️ זו הערכה ולא הבטחה. המרה בין שתי הבורסות תלויה גם בשער הדולר, והטווח הסביר הוא 48,700 עד 52,200.</p>
+  </div>
+
+  <!-- 5 -->
+  <h2><span class="n">5</span> ארבעה תרחישים אפשריים</h2>
+  <p style="color:var(--muted);margin-bottom:16px;font-size:15px">מסודרים מהסביר ביותר לפחות סביר. המחירים הם באגורות (המטבע של הבורסה בת"א — 100 אגורות = שקל).</p>
+
+  <div class="sc" style="border-color:rgba(53,217,142,.4)">
+    <div class="head"><span class="em">✅</span><h3>המחיר מתיישר</h3><span class="odds o-hi">סביר מאוד</span></div>
+    <div class="price" style="color:var(--green)">50,000 – 51,000</div>
+    <p>תל אביב פשוט משלימה את העלייה שכבר קרתה בניו יורק ביום שישי.</p>
+    <div class="means">זה לא אירוע חדש — זו רק "סגירת חשבון" על מה שכבר ידוע.</div>
+  </div>
+
+  <div class="sc" style="border-color:rgba(85,180,255,.4)">
+    <div class="head"><span class="em">📈</span><h3>המגמה נמשכת</h3><span class="odds o-mid">סביר</span></div>
+    <div class="price" style="color:var(--blue)">52,800 – 54,500</div>
+    <p>מדד השבבים ממשיך לעלות לאזור 620. קמטק עולה איתו.</p>
+    <div class="means">זה גם המחיר שאנליסטים בוול סטריט חושבים שהמניה שווה היום.</div>
+  </div>
+
+  <div class="sc" style="border-color:rgba(185,140,255,.4)">
+    <div class="head"><span class="em">🚀</span><h3>תבנית הדגל מתממשת במלואה</h3><span class="odds o-low">אפשרי, לוקח זמן</span></div>
+    <div class="price" style="color:var(--purple)">56,900 – 58,800</div>
+    <p>המדד מגיע ליעד שהתבנית מצביעה עליו (664).</p>
+    <div class="means">זה לא יקרה בקו ישר — צפויות עליות וירידות בדרך. מדובר בשבועות, לא בימים.</div>
+  </div>
+
+  <div class="sc" style="border-color:rgba(255,94,120,.4)">
+    <div class="head"><span class="em">⚠️</span><h3>התבנית נכשלת</h3><span class="odds o-risk">סיכון אמיתי</span></div>
+    <div class="price" style="color:var(--red)">46,500 – 48,000</div>
+    <p>המדד חוזר אחורה מתחת ל-580, והמניה יורדת איתו.</p>
+    <div class="means">תבניות בגרפים <b>לא תמיד עובדות</b>. זה קורה, וצריך לקחת את זה בחשבון.</div>
+  </div>
+
+  <!-- 6 -->
+  <h2><span class="n">6</span> נסה בעצמך</h2>
+  <div class="card">
+    <p style="margin-bottom:10px">גרור את הסרגל כדי לראות: אם מדד השבבים יגיע למספר מסוים — איפה המניה תהיה בערך?</p>
+    <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted)">
+      <span>552 (ירידה)</span><span>589 (היום)</span><span>664 (היעד)</span>
+    </div>
+    <input type="range" id="sl" min="540" max="690" step="1" value="589">
+    <div class="out">
+      <div class="r1">אם מדד השבבים יהיה <b id="o-sx" style="color:var(--blue)">589</b></div>
+      <div class="r2" id="o-ta">—</div>
+      <div class="r1">זה המחיר המשוער של קמטק בתל אביב (אגורות)</div>
+    </div>
+    <p style="font-size:13.5px;color:var(--muted);margin-top:12px">
+      החישוב מבוסס על כך שהיסטורית, כשהמדד זז 1%, קמטק זזה בערך 1.1% — קצת יותר חזק.</p>
+  </div>
+
+  <!-- 7 -->
+  <h2><span class="n">7</span> הדבר האחד שחשוב לעקוב אחריו</h2>
+  <div class="watch">
+    <b style="color:var(--orange)">האם מדד השבבים יעבור את 620 — וכמה אנשים יסחרו באותו יום.</b>
+    <p style="margin-top:12px;font-size:15px">כשמחיר עולה <b>והרבה אנשים קונים</b> — זה סימן אמיתי. כשמחיר עולה אבל <b>מעט אנשים משתתפים</b> — זה לרוב זמני ונוטה לרדת חזרה.</p>
+    <p style="margin-top:12px;font-size:15px">ביום שישי קמטק עלתה עם <b style="color:var(--green)">הרבה קונים</b> (פי 1.5 מהרגיל) — סימן טוב. אבל המדד כולו עלה עם <b style="color:var(--orange)">כמות רגילה</b> של קונים — וזה מה שעוד לא הוכח.</p>
+  </div>
+
+  <!-- glossary -->
+  <h2>📖 מילון קצר</h2>
+  <div class="gl">
+    <dl>
+      <dt>אגורות</dt>
+      <dd>המחיר בבורסה בתל אביב נקוב באגורות. 48,590 אגורות = 485.90 ₪ למניה.</dd>
+      <dt>מדד SOXX</dt>
+      <dd>סל של חברות השבבים הגדולות בעולם. מספר אחד שמראה איך הענף כולו מרגיש.</dd>
+      <dt>תבנית "דגל"</dt>
+      <dd>צורה בגרף: עלייה מהירה, אחר כך דשדוש קצר, ואז לרוב המשך באותו כיוון.</dd>
+      <dt>ווליום (מחזור)</dt>
+      <dd>כמה מניות נסחרו באותו יום. הרבה מחזור = הרבה אנשים מאמינים במהלך.</dd>
+      <dt>רישום כפול</dt>
+      <dd>כשמניה נסחרת בשתי בורסות במקביל. המחירים חייבים להתיישר זה לזה.</dd>
+      <dt>אנליסטים</dt>
+      <dd>כלכלנים בבנקי השקעות שמפרסמים הערכה כמה לדעתם המניה שווה.</dd>
+    </dl>
+  </div>
+
+  <footer>
+    זהו הסבר כללי ו<b>לא המלצה לקנות או למכור</b>.<br>
+    בשוק ההון אפשר להפסיד כסף. כל החלטה דורשת בדיקה עצמאית ואחריות אישית.<br>
+    <span style="font-size:12px">מבוסס על נתוני מסחר עד 2 באוקטובר 2026.</span>
+  </footer>
+</div>
+
+<script>
+// simple line chart of SOXX with flag annotated
+const D=[
+ {d:"03/09",v:502.20},{d:"04/09",v:519.86},{d:"08/09",v:528.40},{d:"09/09",v:532.00},
+ {d:"10/09",v:517.43},{d:"11/09",v:527.07},{d:"14/09",v:497.40},{d:"15/09",v:498.85},
+ {d:"16/09",v:502.06},{d:"17/09",v:519.10},{d:"18/09",v:533.07},{d:"21/09",v:559.34},
+ {d:"22/09",v:572.78},{d:"23/09",v:565.72},{d:"24/09",v:566.07},{d:"25/09",v:572.68},
+ {d:"28/09",v:560.79},{d:"29/09",v:567.44},{d:"30/09",v:568.64},{d:"01/10",v:576.33},
+ {d:"02/10",v:588.90}
+];
+function draw(){
+  const W=720,H=300,P={t:28,b:34,l:46,r:56};
+  const IW=W-P.l-P.r, IH=H-P.t-P.b;
+  const lo=480, hi=680;
+  const y=v=>P.t+IH*(1-(v-lo)/(hi-lo));
+  const x=i=>P.l+(i*IW/(D.length-1));
+  let s='';
+  // target line
+  s+=`<line x1="${P.l}" y1="${y(664)}" x2="${W-P.r}" y2="${y(664)}" stroke="#55b4ff" stroke-width="1.8" stroke-dasharray="8 5"/>`;
+  s+=`<text x="${W-P.r+5}" y="${y(664)+4}" font-size="12" font-weight="800" fill="#55b4ff">664</text>`;
+  s+=`<text x="${W-P.r+5}" y="${y(664)+19}" font-size="10.5" fill="#90a8c6">היעד</text>`;
+  // flag box (22/09 .. 01/10)
+  const fi=12, fj=19;
+  s+=`<rect x="${x(fi)}" y="${y(580)}" width="${x(fj)-x(fi)}" height="${y(552)-y(580)}" fill="rgba(85,180,255,.16)" stroke="#55b4ff" stroke-width="1.4" rx="4"/>`;
+  s+=`<text x="${(x(fi)+x(fj))/2}" y="${y(552)+17}" text-anchor="middle" font-size="11.5" fill="#55b4ff" font-weight="700">עצירה לנשימה</text>`;
+  // pole (sprint) 03/09 -> 22/09
+  s+=`<line x1="${x(0)}" y1="${y(502.2)}" x2="${x(12)}" y2="${y(572.78)}" stroke="#f9cf5c" stroke-width="2.6" stroke-dasharray="7 4" opacity=".9"/>`;
+  s+=`<text x="${x(5)}" y="${y(515)}" font-size="11.5" fill="#f9cf5c" font-weight="700">הספרינט</text>`;
+  // area + line
+  let pts=D.map((p,i)=>`${x(i)},${y(p.v)}`).join(' ');
+  s+=`<polyline points="${pts}" fill="none" stroke="#35d98e" stroke-width="2.6" stroke-linejoin="round"/>`;
+  // breakout dot
+  const li=D.length-1;
+  s+=`<circle cx="${x(li)}" cy="${y(588.9)}" r="7" fill="#b98cff" stroke="#0b1220" stroke-width="2.5"/>`;
+  s+=`<text x="${x(li)}" y="${y(588.9)-15}" text-anchor="middle" font-size="12" font-weight="800" fill="#b98cff">589</text>`;
+  // axis labels
+  [500,560,620,664].forEach(v=>{
+    s+=`<text x="${P.l-8}" y="${y(v)+4}" text-anchor="end" font-size="10.5" fill="#6d84a3">${v}</text>`;
+  });
+  s+=`<text x="${x(0)}" y="${H-12}" font-size="10.5" fill="#6d84a3">ספט'</text>`;
+  s+=`<text x="${x(li)}" y="${H-12}" text-anchor="end" font-size="10.5" fill="#6d84a3">אוק'</text>`;
+  document.getElementById('chart').innerHTML=s;
+}
+const B_SX=588.90,B_CM=165.19,BETA=1.10;
+function upd(){
+  const sx=+document.getElementById('sl').value;
+  const cm=B_CM*(1+(sx/B_SX-1)*BETA);
+  document.getElementById('o-sx').textContent=sx;
+  const a=Math.round(cm*3.02*100), b=Math.round(cm*3.12*100);
+  document.getElementById('o-ta').textContent=a.toLocaleString('he-IL')+' – '+b.toLocaleString('he-IL');
+}
+document.getElementById('sl').addEventListener('input',upd);
+draw(); upd();
+</script>
+</body>
+</html>

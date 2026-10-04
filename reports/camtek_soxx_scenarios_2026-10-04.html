@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>קמטק · SOXX — תרחישים מכאן</title>
+<style>
+  :root{
+    --bg:#070e1a;--p1:#0e1a2d;--p2:#15233a;--line:#1e3050;
+    --text:#e9f0fb;--muted:#7d97bd;--green:#2bd98a;--red:#ff4f6b;
+    --gold:#f7ca4e;--blue:#4bb0ff;--cyan:#38dfe8;--purple:#b482ff;--orange:#ff9d3d;
+    --sh:0 10px 40px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1300px 650px at 72% -8%,#102039 0,var(--bg) 62%);
+    color:var(--text);font-family:'Heebo','Segoe UI',system-ui,Arial,sans-serif;
+    padding:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto}
+  .hdr{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px}
+  .ttl{display:flex;align-items:center;gap:14px}
+  .ic{width:52px;height:52px;border-radius:15px;background:linear-gradient(135deg,#1a6ff0,#2bd98a);
+    display:grid;place-items:center;font-weight:900;font-size:21px;flex-shrink:0;box-shadow:var(--sh)}
+  .ttl h1{font-size:21px;font-weight:800;letter-spacing:.2px}
+  .ttl p{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .stamp{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--green);animation:pz 1.9s infinite}
+  @keyframes pz{0%{box-shadow:0 0 0 0 rgba(43,217,138,.5)}70%{box-shadow:0 0 0 11px transparent}to{box-shadow:0 0 0 0 transparent}}
+  .g{display:grid;gap:13px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  .card{background:linear-gradient(170deg,var(--p1),#0a1526);border:1px solid var(--line);
+    border-radius:18px;padding:18px;box-shadow:var(--sh)}
+  .sec{font-size:13px;color:var(--muted);margin:0 2px 12px;display:flex;align-items:center;gap:8px}
+  .sec b{color:var(--text);font-weight:700;font-size:14.5px}
+  .k{font-size:11.5px;color:var(--muted);margin-bottom:6px}
+  .v{font-size:25px;font-weight:900;letter-spacing:.2px}
+  .sub{font-size:11.5px;color:var(--muted);margin-top:4px}
+  .pos{color:var(--green)}.neg{color:var(--red)}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+  .row:last-child{border:0}.row .l{color:var(--muted)}.row .r{font-weight:700}
+  /* chart */
+  svg{display:block;width:100%;height:auto}
+  .xl{display:flex;justify-content:space-between;font-size:9.5px;color:var(--muted);padding:5px 4px 0;direction:ltr}
+  /* scenarios */
+  .sc{position:relative;overflow:hidden;border-radius:18px;padding:18px;border:1px solid var(--line);
+    background:linear-gradient(170deg,var(--p1),#0a1526);box-shadow:var(--sh)}
+  .sc .tag{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 10px;border-radius:999px;margin-bottom:9px}
+  .t-base{background:rgba(75,176,255,.15);color:var(--blue);border:1px solid rgba(75,176,255,.38)}
+  .t-bull{background:rgba(43,217,138,.14);color:var(--green);border:1px solid rgba(43,217,138,.38)}
+  .t-max{background:rgba(180,130,255,.15);color:var(--purple);border:1px solid rgba(180,130,255,.38)}
+  .t-bear{background:rgba(255,79,107,.13);color:var(--red);border:1px solid rgba(255,79,107,.38)}
+  .sc h3{font-size:15.5px;margin-bottom:7px;font-weight:800}
+  .sc .big{font-size:23px;font-weight:900;margin:9px 0 3px}
+  .sc p{font-size:12.8px;color:var(--muted);line-height:1.65}
+  .sc .lvl{font-size:12px;color:var(--text);background:#081426;border:1px solid var(--line);
+    border-radius:9px;padding:7px 10px;margin-top:10px;font-weight:600}
+  /* slider */
+  input[type=range]{width:100%;accent-color:var(--blue);cursor:pointer;margin:6px 0}
+  .out{background:#081426;border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:10px}
+  /* flag diagram */
+  .flagbox{background:#081426;border:1px solid var(--line);border-radius:12px;padding:14px;font-size:13px;line-height:2}
+  .flagbox b{color:var(--gold)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:9px 8px;text-align:right;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:11.5px}
+  td b{color:var(--green)}
+  .warn{background:rgba(255,157,61,.07);border:1px solid rgba(255,157,61,.3);border-radius:13px;padding:13px 15px;font-size:13.5px;line-height:1.7}
+  footer{color:var(--muted);font-size:11.5px;text-align:center;margin-top:18px;line-height:1.9}
+  @media(max-width:880px){.g2,.g3,.g4{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hdr">
+    <div class="ttl">
+      <div class="ic">קמ</div>
+      <div><h1>קמטק (CAMT) · SOXX — תרחישים מכאן</h1>
+      <p>פריצת דגל בסקטור השבבים · נתונים עד 02/10/2026</p></div>
+    </div>
+    <div class="stamp"><span class="dot"></span>ת"א נפתחת שני 05/10</div>
+  </div>
+
+  <!-- SNAPSHOT -->
+  <div class="g g4" style="margin-bottom:14px">
+    <div class="card"><div class="k">SOXX</div><div class="v pos">588.90</div>
+      <div class="sub">+2.18% · פרץ את הדגל ✅</div></div>
+    <div class="card"><div class="k">CAMT נאסד"ק</div><div class="v pos">$165.19</div>
+      <div class="sub">+7.41% · ווליום ×1.49</div></div>
+    <div class="card"><div class="k">CAMT ת"א (01/10)</div><div class="v">48,590</div>
+      <div class="sub">טרם תמחרה את יום שישי</div></div>
+    <div class="card"><div class="k">ביטא CAMT↔SOXX</div><div class="v" style="color:var(--gold)">1.10</div>
+      <div class="sub">רגרסיה · 1,250 ימים</div></div>
+  </div>
+
+  <!-- CHART -->
+  <div class="card" style="margin-bottom:14px">
+    <p class="sec">📈 <b>SOXX — מבנה הדגל והפריצה</b> <span style="color:var(--muted)">· 28 סשנים</span></p>
+    <svg id="ch" viewBox="0 0 980 300" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="xl" id="xl"></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:10px">
+      <span>🟡 מוט הדגל</span><span>🔵 אזור הדגל</span><span>🟣 נר הפריצה</span><span>⚡ יעד נמדד 664</span>
+    </div>
+  </div>
+
+  <!-- FLAG MEASUREMENT + INTERACTIVE -->
+  <div class="g g2" style="margin-bottom:14px">
+    <div class="card">
+      <p class="sec">📐 <b>מדידת הדגל</b></p>
+      <div class="flagbox">
+        בסיס המוט (03/09): <b>489.21</b><br>
+        פסגת המוט (22/09): <b>573.52</b><br>
+        גובה המוט: <b>84.31 נק'</b><br>
+        הדגל: <b>551.95 – 579.98</b> (רוחב 5.1%)<br>
+        סגירת פריצה (02/10): <b>588.90</b><br>
+        <span style="color:var(--cyan)">🎯 יעד נמדד: 579.98 + 84.31 = <b style="color:var(--cyan);font-size:16px">664</b></span>
+      </div>
+      <div class="row" style="margin-top:12px"><span class="l">RSI(14) של SOXX</span><span class="r" style="color:var(--green)">66.6 — בריא, לא קיצוני</span></div>
+      <div class="row"><span class="l">ווליום הפריצה (SOXX)</span><span class="r" style="color:var(--orange)">×0.96 — ממוצע</span></div>
+      <div class="row"><span class="l">ווליום הפריצה (CAMT)</span><span class="r" style="color:var(--green)">×1.49 — מאשר ✅</span></div>
+      <div class="row"><span class="l">RSI(14) של CAMT</span><span class="r" style="color:var(--green)">63.5 — מקום לרוץ</span></div>
+    </div>
+
+    <div class="card">
+      <p class="sec">🎚️ <b>מחשבון תרחישים</b> — גרור את SOXX</p>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)">
+        <span>552 (כישלון)</span><span>664 (יעד)</span></div>
+      <input type="range" id="sl" min="540" max="690" step="1" value="589">
+      <div class="out">
+        <div class="row"><span class="l">SOXX</span><span class="r v" id="o-sx" style="font-size:20px">588.90</span></div>
+        <div class="row"><span class="l">שינוי</span><span class="r" id="o-ch">0.0%</span></div>
+        <div class="row"><span class="l">CAMT נאסד"ק (ביטא 1.10)</span><span class="r" id="o-cm" style="color:var(--gold)">$165.19</span></div>
+        <div class="row"><span class="l">CAMT ת"א משוער</span><span class="r" id="o-ta" style="color:var(--cyan)">—</span></div>
+      </div>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:9px;line-height:1.6">
+        המרה לת"א לפי יחס נצפה של 3.02–3.12 (ת"א נסגרת שעה לתוך המסחר בארה"ב, ולכן היחס רועש).</p>
+    </div>
+  </div>
+
+  <!-- MONDAY -->
+  <div class="card" style="margin-bottom:14px">
+    <p class="sec">📅 <b>פתיחת ת"א ביום שני — פער שצריך להיסגר</b></p>
+    <p style="font-size:13.5px;color:var(--muted);margin-bottom:11px">
+      ת"א נסגרה ב-48,590 כשתמחרה את הנאסד"ק בסביבות $157.7. מאז הנאסד"ק סגר ב-<b style="color:var(--text)">$165.19</b> — יש פער לסגור.</p>
+    <table>
+      <tr><th>תרחיש יחס</th><th>פתיחה משוערת</th><th>מול הסגירה</th></tr>
+      <tr><td>שמרני (2.95)</td><td>48,700</td><td>+0.2%</td></tr>
+      <tr><td><b>מרכזי (3.02–3.08)</b></td><td><b>50,000 – 50,900</b></td><td><b>+3% עד +4.8%</b></td></tr>
+      <tr><td>אגרסיבי (3.16)</td><td>52,200</td><td>+7.4%</td></tr>
+    </table>
+  </div>
+
+  <!-- SCENARIOS -->
+  <p class="sec" style="margin:20px 2px 10px">🎯 <b>ארבעה תרחישים מכאן</b></p>
+  <div class="g g2" style="margin-bottom:14px">
+
+    <div class="sc">
+      <span class="tag t-base">תרחיש בסיס · סבירות גבוהה</span>
+      <h3>1. סגירת הפער</h3>
+      <div class="big" style="color:var(--blue)">ת"א 50,000–51,000</div>
+      <p>ת"א מתיישרת לנאסד"ק של יום שישי. זו לא תנועה חדשה — זו השלמת פער שכבר קרה. הפריצה של SOXX ושל קמטק כבר בכיס.</p>
+      <div class="lvl">טריגר: עצם הפתיחה ביום שני</div>
+    </div>
+
+    <div class="sc">
+      <span class="tag t-bull">המשך · סבירות בינונית-גבוהה</span>
+      <h3>2. SOXX ל-620</h3>
+      <div class="big" style="color:var(--green)">ת"א 52,800–54,500</div>
+      <p>המדד ממשיך את המומנטום לאזור 620. קמטק בביטא 1.10 מגיעה ל-~$175. זה גם אזור ההתנגדות של אוגוסט (52,010–52,890) וגם קונצנזוס האנליסטים (~$173).</p>
+      <div class="lvl">טריגר: SOXX מחזיק מעל 596 וממשיך</div>
+    </div>
+
+    <div class="sc">
+      <span class="tag t-max">יעד מלא · דורש זמן</span>
+      <h3>3. הדגל מתממש — 664</h3>
+      <div class="big" style="color:var(--purple)">ת"א 56,900–58,800</div>
+      <p>המהלך הנמדד במלואו. קמטק ל-~$188. עם RSI של 66.6 יש מקום, אבל זה לא יקרה בקו ישר — צפו לפריצה, נסיגה, ואז המשך. שבועות, לא ימים.</p>
+      <div class="lvl">טריגר: SOXX עובר 620 בהתרחבות ווליום</div>
+    </div>
+
+    <div class="sc">
+      <span class="tag t-bear">כישלון · סיכון ממשי</span>
+      <h3>4. הדגל נשבר</h3>
+      <div class="big" style="color:var(--red)">ת"א 46,500–48,000</div>
+      <p>SOXX חוזר מתחת ל-579.98 ובודק את 551.95 (-6.3%). קמטק יורדת ~7% ל-~$154. הדגל האדום שתומך בתרחיש הזה: ווליום הפריצה של המדד היה ×0.96 בלבד.</p>
+      <div class="lvl">טריגר: סגירה מתחת 579.98</div>
+    </div>
+  </div>
+
+  <!-- LEVELS -->
+  <div class="g g2" style="margin-bottom:14px">
+    <div class="card">
+      <p class="sec">📊 <b>רמות ב-SOXX</b></p>
+      <div class="row"><span class="l">664</span><span class="r" style="color:var(--cyan)">יעד המהלך הנמדד</span></div>
+      <div class="row"><span class="l">655.95</span><span class="r">שיא 52 שבועות</span></div>
+      <div class="row"><span class="l">620</span><span class="r">התנגדות ביניים</span></div>
+      <div class="row"><span class="l">596.44</span><span class="r">שיא 02/10</span></div>
+      <div class="row"><span class="l">588.90</span><span class="r" style="color:var(--purple)">סגירה נוכחית</span></div>
+      <div class="row"><span class="l">579.98</span><span class="r" style="color:var(--gold)">⭐ גבול הדגל — חייב להחזיק</span></div>
+      <div class="row"><span class="l">551.95</span><span class="r" style="color:var(--red)">רצפת הדגל</span></div>
+    </div>
+    <div class="card">
+      <p class="sec">⚖️ <b>מה תומך ומה מסכן</b></p>
+      <div style="font-size:13px;line-height:1.9">
+        <div style="color:var(--green)">✅ קמטק פרצה על ווליום ×1.49 — אישור במניה עצמה</div>
+        <div style="color:var(--green)">✅ RSI 63–67 — חזק אבל עם מקום לרוץ</div>
+        <div style="color:var(--green)">✅ צבר הזמנות &gt;$600M עם נראות עד סוף 2027</div>
+        <div style="color:var(--green)">✅ יעד הנהלה $750M הכנסות שנתיות</div>
+        <div style="color:var(--red);margin-top:8px">⚠️ ווליום הפריצה של SOXX רק ×0.96</div>
+        <div style="color:var(--red)">⚠️ 92% מההכנסות מאסיה · 45% חשיפה לסין</div>
+        <div style="color:var(--red)">⚠️ מכפיל גבוה — אין מרווח ביטחון למעידה</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="warn" style="margin-bottom:14px">
+    <b style="color:var(--orange)">הסימן המכריע שכדאי לעקוב אחריו:</b> האם SOXX עובר את <b>620</b> <u>בהתרחבות ווליום</u>.
+    אם כן — הדגל אמיתי והיעד 664 בתוקף. אם הוא נתקע שם על ווליום דל — הפריצה הייתה spike, וצפויה נסיגה לבדיקת 579.98.
+  </div>
+
+  <footer>
+    ניתוח טכני וחדשותי בלבד — <b>לא ייעוץ השקעות מורשה</b>.<br>
+    אינדיקטורים וביטא חושבו מנתוני OHLCV יומיים עד 02/10/2026.
+  </footer>
+</div>
+
+<script>
+const SOXX=[{"d":"08/25","o":515.91,"h":520.1,"l":509.66,"c":514.06},{"d":"08/26","o":512.09,"h":516.39,"l":509.26,"c":515.4},{"d":"08/27","o":526.06,"h":527.78,"l":517.0,"c":525.43},{"d":"08/28","o":521.2,"h":522.65,"l":506.82,"c":508.62},{"d":"08/31","o":509.82,"h":514.33,"l":507.03,"c":511.04},{"d":"09/01","o":501.43,"h":504.72,"l":495.09,"c":500.31},{"d":"09/02","o":498.18,"h":504.02,"l":493.31,"c":501.44},{"d":"09/03","o":496.64,"h":503.32,"l":489.21,"c":502.2},{"d":"09/04","o":509.31,"h":520.56,"l":507.25,"c":519.86},{"d":"09/08","o":530.5,"h":534.28,"l":525.49,"c":528.4},{"d":"09/09","o":524.85,"h":535.48,"l":524.85,"c":532.0},{"d":"09/10","o":518.32,"h":522.5,"l":514.31,"c":517.43},{"d":"09/11","o":525.24,"h":531.04,"l":521.13,"c":527.07},{"d":"09/14","o":497.17,"h":503.18,"l":495.15,"c":497.4},{"d":"09/15","o":502.55,"h":504.74,"l":496.58,"c":498.85},{"d":"09/16","o":506.71,"h":510.37,"l":496.81,"c":502.06},{"d":"09/17","o":517.09,"h":520.42,"l":514.8,"c":519.1},{"d":"09/18","o":522.71,"h":533.32,"l":522.38,"c":533.07},{"d":"09/21","o":545.08,"h":562.2,"l":541.47,"c":559.34},{"d":"09/22","o":553.76,"h":573.52,"l":553.36,"c":572.78},{"d":"09/23","o":570.4,"h":571.55,"l":557.05,"c":565.72},{"d":"09/24","o":554.9,"h":566.81,"l":553.24,"c":566.07},{"d":"09/25","o":569.48,"h":575.69,"l":567.35,"c":572.68},{"d":"09/28","o":568.71,"h":570.87,"l":551.95,"c":560.79},{"d":"09/29","o":569.79,"h":574.47,"l":565.3,"c":567.44},{"d":"09/30","o":568.73,"h":572.32,"l":564.01,"c":568.64},{"d":"10/01","o":569.19,"h":579.98,"l":564.04,"c":576.33},{"d":"10/02","o":590.91,"h":596.44,"l":587.25,"c":588.9}];
+
+const $=s=>document.querySelector(s);
+
+function chart(){
+  const W=980,H=300,P={t:16,b:14,l:44,r:60};
+  const IW=W-P.l-P.r, IH=H-P.t-P.b;
+  const lo=Math.min(...SOXX.map(c=>c.l))-10, hi=680;
+  const y=v=>P.t+IH*(1-(v-lo)/(hi-lo));
+  const n=SOXX.length, bw=Math.max(5,Math.floor(IW/n*0.6)), x=i=>P.l+Math.round((i+0.5)*IW/n);
+  let s='';
+  // flag zone shading (indices of 09/22..10/01)
+  const fi=SOXX.findIndex(c=>c.d==='09/22'), fj=SOXX.findIndex(c=>c.d==='10/01');
+  s+=`<rect x="${x(fi)-bw}" y="${y(579.98)}" width="${x(fj)-x(fi)+bw*2}" height="${y(551.95)-y(579.98)}" fill="rgba(75,176,255,.12)" stroke="rgba(75,176,255,.45)" stroke-width="1" rx="3"/>`;
+  // gridlines
+  [520,560,600,640,664].forEach(v=>{
+    const col = v===664?'var(--cyan)':'#17293f';
+    s+=`<line x1="${P.l}" y1="${y(v)}" x2="${W-P.r}" y2="${y(v)}" stroke="${col}" stroke-width="${v===664?1.6:1}" stroke-dasharray="${v===664?'7 4':'3 4'}"/>`;
+    s+=`<text x="${P.l-6}" y="${y(v)+4}" text-anchor="end" font-size="10" fill="${v===664?'#38dfe8':'#50688a'}">${v}</text>`;
+  });
+  s+=`<text x="${W-P.r+6}" y="${y(664)+4}" font-size="10.5" font-weight="700" fill="#38dfe8">🎯 יעד 664</text>`;
+  // pole line 09/03 low -> 09/22 high
+  const pi=SOXX.findIndex(c=>c.d==='09/03'), pj=SOXX.findIndex(c=>c.d==='09/22');
+  s+=`<line x1="${x(pi)}" y1="${y(489.21)}" x2="${x(pj)}" y2="${y(573.52)}" stroke="var(--gold)" stroke-width="2.2" stroke-dasharray="6 3" opacity=".85"/>`;
+  // candles
+  SOXX.forEach((c,i)=>{
+    const cx=x(i), bull=c.c>=c.o;
+    const isBO = c.d==='10/02';
+    const col = isBO?'var(--purple)':(bull?'var(--green)':'var(--red)');
+    const by=Math.min(y(c.o),y(c.c)), bh=Math.max(1.5,Math.abs(y(c.o)-y(c.c)));
+    s+=`<line x1="${cx}" y1="${y(c.h)}" x2="${cx}" y2="${y(c.l)}" stroke="${col}" stroke-width="1.4"/>`;
+    s+=`<rect x="${cx-bw/2}" y="${by}" width="${bw}" height="${bh}" fill="${col}" rx="1.5" opacity=".95"/>`;
+    if(isBO){
+      s+=`<text x="${cx}" y="${y(c.h)-7}" text-anchor="middle" font-size="10.5" font-weight="800" fill="var(--purple)">פריצה 588.9</text>`;
+    }
+  });
+  $('#ch').innerHTML=s;
+  const xl=$('#xl'); xl.innerHTML='';
+  SOXX.forEach((c,i)=>{ const sp=document.createElement('span');
+    sp.textContent = (i%3===0||c.d==='10/02') ? c.d : '';
+    if(c.d==='10/02'){sp.style.color='var(--purple)';sp.style.fontWeight='700';}
+    xl.appendChild(sp); });
+}
+
+const BASE_SX=588.90, BASE_CM=165.19, BETA=1.10;
+function upd(){
+  const sx=+$('#sl').value;
+  const ch=(sx/BASE_SX-1);
+  const cm=BASE_CM*(1+ch*BETA);
+  $('#o-sx').textContent=sx.toFixed(2);
+  const e=$('#o-ch');
+  e.textContent=(ch>=0?'+':'')+(ch*100).toFixed(1)+'%';
+  e.className='r '+(ch>=0?'pos':'neg');
+  $('#o-cm').textContent='$'+cm.toFixed(2);
+  $('#o-ta').textContent=Math.round(cm*3.02*100).toLocaleString('he-IL')+' – '+Math.round(cm*3.12*100).toLocaleString('he-IL');
+}
+$('#sl').addEventListener('input',upd);
+chart(); upd();
+</script>
+</body>
+</html>
